@@ -196,7 +196,7 @@ vim config/.env
 ```
 
 > Note: top-level `./scripts/start.sh` manages `ai-service`, `data-service`, `signal-service`, `telegram-service`, `trading-service` (ai-service is a sub-module; readiness check only, no standalone process).  
-> Preview services are manual: `cd services-preview/markets-service && ./scripts/start.sh start` (multi-market); `cd services-preview/order-service && python -m src.market-maker.main` (market making, API key required); `cd services-preview/vis-service && ./scripts/start.sh start` (visualization, port 8087).
+> Optional service manual start: `cd services/consumption/api-service && ./scripts/start.sh start` (REST API, default port 8088).
 
 ### ⚙️ Configuration (required)
 
@@ -228,7 +228,7 @@ Download pre-built datasets from HuggingFace to skip lengthy historical backfill
 
 ```bash
 # Install dependencies
-services/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
+services/ingestion/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
 
 # Download Main4 dataset by default (BTC/ETH/BNB/SOL, 415MB)
 python scripts/download_hf_data.py
@@ -858,118 +858,19 @@ tradecat/
 │   ├── export_timescaledb.sh       # Data export
 │   └── timescaledb_compression.sh  # Compression management
 │
-├── 📂 services/                    # Stable Microservices (6)
+├── 📂 services/                    # Layered services (Ingestion/Compute/Consumption)
 │   │
-│   ├── 📂 aws-service/             # Local -> remote SQLite sync service
-│   ├── 📂 data-service/            # Crypto data collection service
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 collectors/      # Collectors
-│   │   │   ├── 📂 adapters/        # Adapters
-│   │   │   └── config.py
-│   │   ├── 📂 scripts/
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   └── requirements.lock.txt
+│   ├── 📂 ingestion/               # Ingestion layer: write TimescaleDB
+│   │   └── 📂 data-service/        # Crypto data collection service
 │   │
-│   ├── 📂 trading-service/         # Indicator calculation service
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 indicators/      # 34 indicator modules
-│   │   │   ├── 📂 core/            # Compute engine
-│   │   │   └── simple_scheduler.py
-│   │   ├── 📂 scripts/
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   └── requirements.lock.txt
+│   ├── 📂 compute/                 # Compute layer: read PG / write SQLite
+│   │   ├── 📂 trading-service/     # Indicator calculation (writes SQLite)
+│   │   ├── 📂 signal-service/      # Signal detection (rules engine)
+│   │   └── 📂 ai-service/          # AI analysis (telegram submodule)
 │   │
-│   ├── 📂 telegram-service/        # Telegram Bot
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 cards/           # Ranking cards
-│   │   │   ├── 📂 signals/         # Signal detection engine
-│   │   │   ├── 📂 bot/             # Bot main program
-│   │   │   └── main.py
-│   │   ├── 📂 scripts/
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   └── requirements.lock.txt
-│   │
-│   ├── 📂 ai-service/              # AI analysis service
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 data/            # Data fetching
-│   │   │   ├── 📂 llm/             # LLM client
-│   │   │   ├── 📂 prompt/          # Prompt management
-│   │   │   └── 📂 bot/             # Bot integration
-│   │   ├── 📂 prompts/             # Prompt templates
-│   │   ├── 📂 scripts/
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   └── requirements.txt
-│   │
-│   └── 📂 signal-service/          # Signal detection service (129 rules)
-│       ├── 📂 src/
-│       │   ├── 📂 engines/         # Detection engines (SQLite + PG)
-│       │   ├── 📂 rules/           # Signal rules (8 categories)
-│       │   ├── 📂 events/          # Event publishing
-│       │   ├── 📂 storage/         # Cooldown persistence
-│       │   └── 📂 formatters/      # Output formatters
-│       ├── 📂 scripts/
-│       ├── 📂 tests/
-│       ├── Makefile
-│       ├── pyproject.toml
-│       └── requirements.txt
-│
-├── 📂 services-preview/            # Preview Microservices (6, in development)
-│   │
-│   ├── 📂 api-service/             # REST API service
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 routers/         # API routes
-│   │   │   ├── 📂 schemas/         # Pydantic models
-│   │   │   └── app.py              # FastAPI entry
-│   │   ├── 📂 scripts/
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   └── requirements.txt
-│   │
-│   ├── 📂 markets-service/         # Multi-market data collection (US/China stocks, macro)
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 providers/       # Data source adapters (8)
-│   │   │   ├── 📂 collectors/      # Collection task scheduling
-│   │   │   ├── 📂 models/          # Standardized data models
-│   │   │   └── 📂 core/            # Core framework
-│   │   ├── 📂 scripts/
-│   │   ├── requirements.txt
-│   │   └── requirements.lock.txt
-│   │
-│   ├── 📂 predict-service/         # Prediction market signals
-│   │   ├── 📂 services/            # Sub-services (polymarket/kalshi/opinion)
-│   │   ├── 📂 docs/                # Requirements/design/ADR/Prompt docs
-│   │   └── 📂 libs/                # Shared libraries
-│   │
-│   ├── 📂 vis-service/             # Visualization rendering service
-│   │   ├── 📂 src/                 # FastAPI entry & template rendering
-│   │   ├── 📂 scripts/             # Start scripts
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   └── requirements.txt
-│   │
-│   ├── 📂 order-service/           # Trade execution service
-│   │   ├── 📂 src/
-│   │   │   └── 📂 market-maker/    # A-S market making system
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   └── requirements.lock.txt
-│   │
-│   └── 📂 fate-service/            # Fortune telling service
-│       ├── 📂 services/            # Sub-services
-│       │   └── 📂 telegram-service/ # Fortune Bot
-│       │       └── 📂 src/liuyao_factors/ # Liuyao quantitative factors
-│       ├── 📂 libs/                # Shared libraries
-│       ├── Makefile
-│       ├── pyproject.toml
-│       └── requirements-dev.txt
+│   └── 📂 consumption/             # Consumption layer: Telegram/API
+│       ├── 📂 telegram-service/    # Telegram Bot
+│       └── 📂 api-service/         # REST API (optional)
 │
 ├── 📂 libs/                        # Shared libraries
 │   ├── 📂 database/                # Database files
@@ -1055,16 +956,21 @@ tradecat/
 
 ```bash
 # data-service (supports daemon mode)
-cd services/data-service
+cd services/ingestion/data-service
 ./scripts/start.sh start    # Start (with daemon)
 ./scripts/start.sh stop     # Stop
 ./scripts/start.sh status   # Status
 
 # trading-service / telegram-service
-cd services/trading-service  # or telegram-service
+cd services/compute/trading-service  # or services/consumption/telegram-service
 ./scripts/start.sh start    # Start
 ./scripts/start.sh stop     # Stop
 ./scripts/start.sh status   # Status
+
+# api-service (optional)
+cd services/consumption/api-service
+./scripts/start.sh start
+./scripts/start.sh status
 ```
 
 </details>
@@ -1096,15 +1002,18 @@ cd services/trading-service  # or telegram-service
 
 ```bash
 # data-service logs
-tail -f services/data-service/logs/backfill.log
-tail -f services/data-service/logs/ws_klines.log
-tail -f services/data-service/logs/metrics.log
+tail -f services/ingestion/data-service/logs/backfill.log
+tail -f services/ingestion/data-service/logs/metrics.log
+tail -f services/ingestion/data-service/logs/ws.log
 
 # trading-service logs
-tail -f services/trading-service/logs/simple_scheduler.log
+tail -f services/compute/trading-service/logs/service.log
 
 # telegram-service logs
-tail -f services/telegram-service/logs/bot.log
+tail -f services/consumption/telegram-service/logs/bot.log
+
+# signal-service logs
+tail -f services/compute/signal-service/logs/signal-service.log
 
 # Daemon logs
 tail -f logs/daemon.log
@@ -1248,7 +1157,7 @@ pip install m-patternpy
 pip install tradingpattern --no-deps
 
 # Restart trading-service
-cd services/trading-service
+cd services/compute/trading-service
 ./scripts/start.sh restart
 ```
 

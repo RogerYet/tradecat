@@ -8,11 +8,10 @@
 
 ### 1.1 允许的操作
 
-- 修改 `services/*/src/` 下的业务代码
-- 修改 `services-preview/*/src/` 下的业务代码
+- 修改 `services/**/src/` 下的业务代码（按 ingestion/compute/consumption 分层）
 - 修改 `config/.env.example` 全局配置模板
-- 添加/修改技术指标 (`services/trading-service/src/indicators/`)
-- 添加/修改排行榜卡片 (`services/telegram-service/src/cards/`)
+- 添加/修改技术指标 (`services/compute/trading-service/src/indicators/`)
+- 添加/修改排行榜卡片 (`services/consumption/telegram-service/src/cards/`)
 - 修改启动脚本 (`services/*/scripts/`, `scripts/`)
 - 更新文档 (`README.md`, `README_EN.md`, `AGENTS.md`)
 - 修改 `Makefile`、`pyproject.toml`
@@ -62,33 +61,30 @@ vim config/.env
 
 > 顶层 `./scripts/start.sh` 管理 ai-service / data-service / signal-service / telegram-service / trading-service（ai-service 仅做就绪检查，无独立进程）。
 
-### 2.2 预览版服务启动
+### 2.2 按服务手动启动（调试/可选）
 
 ```bash
+# data-service（采集）
+cd services/ingestion/data-service && ./scripts/start.sh start
+
+# trading-service（指标计算）
+cd services/compute/trading-service && ./scripts/start.sh start
+
 # signal-service（信号检测）
-cd services/signal-service && ./scripts/start.sh start
+cd services/compute/signal-service && ./scripts/start.sh start
 
-# markets-service（多市场采集）
-cd services-preview/markets-service && ./scripts/start.sh start
+# telegram-service（Telegram Bot）
+cd services/consumption/telegram-service && ./scripts/start.sh start
 
-# vis-service（可视化，端口 8087）
-cd services-preview/vis-service && ./scripts/start.sh start
-
-# order-service（做市，需 API Key）
-cd services-preview/order-service && python -m src
-
-# fate-service（命理服务）
-cd services-preview/fate-service && make run
-
-# predict-service（预测市场，Node.js）
-cd services-preview/predict-service/services/polymarket && npm start
+# api-service（REST API，可选）
+cd services/consumption/api-service && ./scripts/start.sh start
 ```
 
 ### 2.3 开发/修改流程
 
 ```bash
 # 1. 进入对应服务并激活虚拟环境
-cd services/trading-service && source .venv/bin/activate
+cd services/compute/trading-service && source .venv/bin/activate
 
 # 2. 修改代码...
 
@@ -114,7 +110,7 @@ cd /path/to/tradecat
 |:---|:---|
 | `./scripts/init.sh` | 初始化所有核心服务虚拟环境 |
 | `./scripts/init.sh <service>` | 初始化单个服务 |
-| `./scripts/init.sh --all` | 初始化全部服务（含 preview） |
+| `./scripts/init.sh --all` | 初始化全部服务（含可选服务） |
 | `./scripts/start.sh start\|stop\|status\|restart` | 核心服务管理 |
 | `./scripts/start.sh daemon\|daemon-stop` | 守护进程模式（自动重启崩溃服务） |
 | `./scripts/check_env.sh` | 环境检查（Python/依赖/配置/网络/数据库） |
@@ -146,7 +142,7 @@ cd /path/to/tradecat
 每个服务都有标准化的 Makefile，支持以下 targets：
 
 ```bash
-cd services/<service-name>  # 或 services-preview/<service-name>
+cd services/<layer>/<service-name>
 
 make help        # 显示帮助
 make venv        # 创建虚拟环境
@@ -197,47 +193,32 @@ sqlite3 libs/database/services/telegram-service/market_data.db
 
 - **微服务独立**：每个服务有独立的 `.venv`、`requirements.txt`、`pyproject.toml`、`Makefile`
 - **配置统一**：所有配置集中在 `config/.env`，各服务共用
-- **数据流向**：`data-service → TimescaleDB → trading-service → SQLite → telegram/ai/signal/vis`
+- **数据流向**：`data-service → TimescaleDB → trading-service → SQLite → telegram/api → (ai/signal)`
 
-### 4.2 服务清单（15 个）
+### 4.2 服务清单（6 个）
 
-| 服务 | 位置 | 职责 | 入口 |
-|:---|:---|:---|:---|
-| aws-service | services/ | 本地 -> 远端 SQLite 同步 | `src/db_sync_service.py` |
-| data-service | services/ | 加密货币数据采集 | `src/__main__.py` |
-| trading-service | services/ | 指标计算 | `src/__main__.py` |
-| telegram-service | services/ | Bot 交互 | `src/main.py` |
-| ai-service | services/ | AI 分析（telegram 子模块） | `src/__main__.py` |
-| signal-service | services/ | 信号检测（129条规则） | `src/__main__.py` |
-| api-service | services-preview/ | REST API 服务（端口 8000） | `src/__main__.py` |
-| markets-service | services-preview/ | 全市场采集 | `src/__main__.py` |
-| vis-service | services-preview/ | 可视化渲染（端口 8087） | `src/__main__.py` |
-| order-service | services-preview/ | 交易执行 | `src/__main__.py` |
-| predict-service | services-preview/ | 预测市场（Node.js） | `services/*/` |
-| fate-service | services-preview/ | 命理服务（端口 8001） | `services/telegram-service/` |
-| data-v2-service | services-preview/ | 行情采集 v2（REST/WS + 全字段并集） | `src/__main__.py` |
-| nofx-dev | services-preview/ | NOFX AI 交易系统（预览） | `main.go` |
-| datacat-service | services-preview/ | 数据采集基建（分层预览） | `src/__main__.py` |
+| 服务 | 分层 | 位置 | 职责 | 入口 |
+|:---|:---|:---|:---|:---|
+| data-service | ingestion | `services/ingestion/data-service/` | 加密货币数据采集（写入 TimescaleDB） | `src/__main__.py` |
+| trading-service | compute | `services/compute/trading-service/` | 指标计算（写入 SQLite） | `src/__main__.py` |
+| signal-service | compute | `services/compute/signal-service/` | 信号检测（规则引擎，读库） | `src/__main__.py` |
+| ai-service | compute | `services/compute/ai-service/` | AI 分析（telegram 子模块） | `src/__main__.py` |
+| telegram-service | consumption | `services/consumption/telegram-service/` | Bot 交互、卡片渲染、订阅管理 | `src/main.py` |
+| api-service | consumption | `services/consumption/api-service/` | REST API（只读查询） | `src/__main__.py` |
 
 ### 4.3 模块边界
 
 | 服务 | 职责 | 禁止 |
 |:---|:---|:---|
-| aws-service | 本地 -> 远端 SQLite 同步 | 禁止参与指标计算与推送 |
-| data-service | 加密货币数据采集、存储到 TimescaleDB | 禁止计算指标 |
-| markets-service | 全市场数据采集（美股/A股/宏观） | 禁止计算指标 |
-| trading-service | 指标计算、写入 SQLite | 禁止直接推送消息 |
-| telegram-service | Bot 交互、信号推送 UI | 禁止包含信号检测逻辑 |
-| ai-service | AI 分析、Wyckoff 方法论 | 作为 telegram-service 子模块 |
-| signal-service | 信号检测、规则引擎（独立服务） | 只读数据库，禁止 Telegram 依赖 |
+| data-service | 加密货币数据采集、写入 TimescaleDB | 禁止计算指标与写入 SQLite |
+| trading-service | 指标计算、写入 SQLite | 禁止直接推送消息/依赖 Telegram |
+| signal-service | 信号检测、规则引擎 | 禁止 Telegram 依赖；默认只读业务数据（冷却/历史为例外的持久化） |
+| telegram-service | Bot 交互、卡片渲染、订阅管理 | 禁止包含信号检测核心逻辑（规则引擎在 signal-service） |
+| ai-service | AI 分析（telegram 子模块） | 禁止承担常驻采集/计算职责（避免与 data/trading 重叠） |
 | api-service | REST API 数据查询 | 只读数据库，禁止写入 |
-| vis-service | 可视化渲染 | 禁止写入数据库 |
-| order-service | 交易执行、做市 | 禁止修改数据采集逻辑 |
-| nofx-dev | NOFX AI 交易系统（预览） | 暂未定义 |
 
 > **注意**：telegram-service/signals 模块已解耦，仅保留适配层 (`adapter.py`) 和 UI (`ui.py`)，信号检测逻辑全部在 signal-service 中。
-> 冷却持久化：`signal-service/src/storage/cooldown.py` 负责将冷却键写入 `libs/database/services/signal-service/cooldown.db`，SQLite 引擎启动时加载，`_set_cooldown()` 同步落盘；公共接口 `get_cooldown_storage()` 供其他模块复用。
-> 冷却持久化：`signal-service/src/storage/cooldown.py` 负责将冷却键写入 `libs/database/services/signal-service/cooldown.db`，SQLite 引擎启动时加载，`_set_cooldown()` 同步落盘；公共接口 `get_cooldown_storage()` 供其他模块复用。
+> 冷却持久化：`services/compute/signal-service/src/storage/cooldown.py` 负责将冷却键写入 `libs/database/services/signal-service/cooldown.db`，SQLite 引擎启动时加载，`_set_cooldown()` 同步落盘；公共接口 `get_cooldown_storage()` 供其他模块复用。
 
 ### 4.4 依赖添加规则
 
@@ -343,23 +324,16 @@ tradecat/
 │   ├── export_timescaledb_main4.sh # 导出 Main4 精简数据集（默认端口 5433）
 │   └── timescaledb_compression.sh  # 压缩管理（默认端口 5433）
 │
-├── services/                       # 稳定版微服务 (6个)
-│   ├── aws-service/                # 本地 -> 远端 SQLite 同步
-│   ├── data-service/               # 加密货币数据采集
-│   ├── trading-service/            # 指标计算（34个指标模块）
-│   ├── telegram-service/           # Telegram Bot（39张卡片）
-│   ├── ai-service/                 # AI 分析
-│   └── signal-service/             # 信号检测（129条规则）
-│
-├── services-preview/               # 预览版微服务 (8个)
-│   ├── api-service/                # REST API 服务（端口 8000）
-│   ├── datacat-service/            # 数据采集基建（分层预览）
-│   ├── data-v2-service/            # 行情采集 v2（REST/WS + 全字段并集）
-│   ├── markets-service/            # 全市场数据采集
-│   ├── vis-service/                # 可视化渲染（端口 8087）
-│   ├── order-service/              # 交易执行
-│   ├── predict-service/            # 预测市场（Node.js）
-│   └── fate-service/               # 命理服务（端口 8001）
+├── services/                       # 服务分层（采集/计算/消费）
+│   ├── ingestion/                  # 采集层：写 TimescaleDB
+│   │   └── data-service/           # 加密货币数据采集
+│   ├── compute/                    # 计算层：读 PG / 写 SQLite
+│   │   ├── trading-service/        # 指标计算（写入 SQLite）
+│   │   ├── signal-service/         # 信号检测（规则引擎）
+│   │   └── ai-service/             # AI 分析（telegram 子模块）
+│   └── consumption/                # 消费层：Telegram/API
+│       ├── telegram-service/       # Telegram Bot
+│       └── api-service/            # REST API（可选）
 │
 ├── libs/
 │   ├── database/                   # 数据库文件
@@ -450,7 +424,7 @@ tradecat/
 ### 6.2 trading-service core 分层（IO/Compute/Storage）
 
 ```
-services/trading-service/src/core/
+services/compute/trading-service/src/core/
 ├── engine.py               # 流程编排：只管调度与观测
 ├── io.py                   # 数据读取与缓存装配（只读）
 ├── compute.py              # 指标计算与并行调度（纯计算）
@@ -493,7 +467,7 @@ PGPASSWORD=postgres psql -h localhost -p 5434 -U postgres -c "\l"
 
 ```bash
 # 重建虚拟环境（依赖坏了用这个）
-cd services/<service>
+cd services/<layer>/<service>
 make reset
 ```
 
@@ -742,10 +716,10 @@ CI（`.github/workflows/ci.yml`）仅执行：
 ./scripts/start.sh start|stop|status
 
 # 单服务管理
-cd services/<name> && make start|stop|status
+cd services/<layer>/<name> && make start|stop|status
 
 # 代码检查
-cd services/<name> && make lint format test
+cd services/<layer>/<name> && make lint format test
 
 # 验证
 ./scripts/verify.sh

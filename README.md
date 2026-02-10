@@ -181,7 +181,7 @@ vim config/.env
 ```
 
 > 说明：顶层 `./scripts/start.sh` 管理 `ai-service`、`data-service`、`signal-service`、`telegram-service`、`trading-service`（ai-service 为子模块，仅做就绪检查，无独立进程）。  
-> 预览版服务需手动启动：`cd services-preview/markets-service && ./scripts/start.sh start`（多市场采集）；`cd services-preview/order-service && python -m src.market-maker.main`（做市，需 API Key）；`cd services-preview/vis-service && ./scripts/start.sh start`（可视化，端口 8087）。
+> 可选服务需手动启动：`cd services/consumption/api-service && ./scripts/start.sh start`（REST API，默认端口 8088）。
 
 ### ⚙️ 配置（必须）
 
@@ -219,7 +219,7 @@ vim config/.env
 
 ```bash
 # 安装依赖
-services/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
+services/ingestion/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
 
 # 默认下载 Main4 数据集（BTC/ETH/BNB/SOL，415MB）
 python scripts/download_hf_data.py
@@ -850,118 +850,28 @@ tradecat/
 │   ├── export_timescaledb.sh       # 数据导出
 │   └── timescaledb_compression.sh  # 压缩管理
 │
-├── 📂 services/                    # 稳定版微服务 (6个)
+├── 📂 services/                    # 服务分层（采集/计算/消费）
 │   │
-│   ├── 📂 aws-service/             # 本地 -> 远端 SQLite 同步服务
-│   ├── 📂 data-service/            # 加密货币数据采集服务
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 collectors/      # 采集器
-│   │   │   ├── 📂 adapters/        # 适配器
-│   │   │   └── config.py
-│   │   ├── 📂 scripts/
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   └── requirements.lock.txt
+│   ├── 📂 ingestion/               # 采集层：写 TimescaleDB
+│   │   └── 📂 data-service/        # 加密货币数据采集服务
+│   │       ├── 📂 src/
+│   │       │   ├── 📂 collectors/  # 采集器
+│   │       │   ├── 📂 adapters/    # 适配器
+│   │       │   └── config.py
+│   │       ├── 📂 scripts/
+│   │       ├── Makefile
+│   │       ├── pyproject.toml
+│   │       ├── requirements.txt
+│   │       └── requirements.lock.txt
 │   │
-│   ├── 📂 trading-service/         # 指标计算服务
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 indicators/      # 34个指标模块
-│   │   │   ├── 📂 core/            # 计算引擎
-│   │   │   └── simple_scheduler.py
-│   │   ├── 📂 scripts/
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   └── requirements.lock.txt
+│   ├── 📂 compute/                 # 计算层：读 PG / 写 SQLite
+│   │   ├── 📂 trading-service/     # 指标计算服务（写入 SQLite）
+│   │   ├── 📂 signal-service/      # 信号检测服务（规则引擎）
+│   │   └── 📂 ai-service/          # AI 分析（telegram 子模块）
 │   │
-│   ├── 📂 telegram-service/        # Telegram Bot
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 cards/           # 排行榜卡片
-│   │   │   ├── 📂 signals/         # 信号检测引擎
-│   │   │   ├── 📂 bot/             # Bot 主程序
-│   │   │   └── main.py
-│   │   ├── 📂 scripts/
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   └── requirements.lock.txt
-│   │
-│   ├── 📂 ai-service/              # AI 分析服务
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 data/            # 数据获取
-│   │   │   ├── 📂 llm/             # LLM 客户端
-│   │   │   ├── 📂 prompt/          # Prompt 管理
-│   │   │   └── 📂 bot/             # Bot 集成
-│   │   ├── 📂 prompts/             # Prompt 模板
-│   │   ├── 📂 scripts/
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   └── requirements.txt
-│   │
-│   └── 📂 signal-service/          # 信号检测服务（129条规则）
-│       ├── 📂 src/
-│       │   ├── 📂 engines/         # 检测引擎（SQLite + PG）
-│       │   ├── 📂 rules/           # 信号规则（8个分类）
-│       │   ├── 📂 events/          # 事件发布
-│       │   ├── 📂 storage/         # 冷却持久化
-│       │   └── 📂 formatters/      # 格式化输出
-│       ├── 📂 scripts/
-│       ├── 📂 tests/
-│       ├── Makefile
-│       ├── pyproject.toml
-│       └── requirements.txt
-│
-├── 📂 services-preview/            # 预览版微服务 (6个，开发中)
-│   │
-│   ├── 📂 api-service/             # REST API 服务
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 routers/         # API 路由
-│   │   │   ├── 📂 schemas/         # Pydantic 模型
-│   │   │   └── app.py              # FastAPI 入口
-│   │   ├── 📂 scripts/
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   └── requirements.txt
-│   │
-│   ├── 📂 markets-service/         # 全市场数据采集（美股/A股/宏观）
-│   │   ├── 📂 src/
-│   │   │   ├── 📂 providers/       # 数据源适配器 (8个)
-│   │   │   ├── 📂 collectors/      # 采集任务调度
-│   │   │   ├── 📂 models/          # 标准化数据模型
-│   │   │   └── 📂 core/            # 核心框架
-│   │   ├── 📂 scripts/
-│   │   ├── requirements.txt
-│   │   └── requirements.lock.txt
-│   │
-│   ├── 📂 predict-service/         # 预测市场信号微服务
-│   │   ├── 📂 services/            # 子服务 (polymarket/kalshi/opinion)
-│   │   ├── 📂 docs/                # 需求/设计/ADR/Prompt 文档
-│   │   └── 📂 libs/                # 共享库
-│   │
-│   ├── 📂 vis-service/             # 可视化渲染服务
-│   │   ├── 📂 src/                 # FastAPI 入口与模板渲染
-│   │   ├── 📂 scripts/             # 启动脚本
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   └── requirements.txt
-│   │
-│   ├── 📂 order-service/           # 交易执行服务
-│   │   ├── 📂 src/
-│   │   │   └── 📂 market-maker/    # A-S 做市系统
-│   │   ├── Makefile
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   └── requirements.lock.txt
-│   │
-│   └── 📂 fate-service/            # 命理服务
-│       ├── 📂 services/            # 子服务
-│       │   └── 📂 telegram-service/ # 命理 Bot
-│       │       └── 📂 src/liuyao_factors/ # 六爻量化因子
-│       ├── 📂 libs/                # 共享库
-│       ├── Makefile
-│       ├── pyproject.toml
-│       └── requirements-dev.txt
+│   └── 📂 consumption/             # 消费层：对外呈现（Telegram/API）
+│       ├── 📂 telegram-service/    # Telegram Bot（卡片/订阅/快照）
+│       └── 📂 api-service/         # REST API（可选）
 │
 ├── 📂 libs/                        # 共享库
 │   ├── 📂 database/                # 数据库文件
@@ -1046,16 +956,21 @@ tradecat/
 
 ```bash
 # data-service（支持守护模式）
-cd services/data-service
+cd services/ingestion/data-service
 ./scripts/start.sh start    # 启动（含守护）
 ./scripts/start.sh stop     # 停止
 ./scripts/start.sh status   # 状态
 
 # trading-service / telegram-service
-cd services/trading-service  # 或 telegram-service
+cd services/compute/trading-service  # 或 services/consumption/telegram-service
 ./scripts/start.sh start    # 启动
 ./scripts/start.sh stop     # 停止
 ./scripts/start.sh status   # 状态
+
+# api-service（可选）
+cd services/consumption/api-service
+./scripts/start.sh start
+./scripts/start.sh status
 ```
 
 </details>
@@ -1087,15 +1002,18 @@ cd services/trading-service  # 或 telegram-service
 
 ```bash
 # data-service 日志
-tail -f services/data-service/logs/backfill.log
-tail -f services/data-service/logs/ws_klines.log
-tail -f services/data-service/logs/metrics.log
+tail -f services/ingestion/data-service/logs/backfill.log
+tail -f services/ingestion/data-service/logs/metrics.log
+tail -f services/ingestion/data-service/logs/ws.log
 
 # trading-service 日志
-tail -f services/trading-service/logs/simple_scheduler.log
+tail -f services/compute/trading-service/logs/service.log
 
 # telegram-service 日志
-tail -f services/telegram-service/logs/bot.log
+tail -f services/consumption/telegram-service/logs/bot.log
+
+# signal-service 日志
+tail -f services/compute/signal-service/logs/signal-service.log
 
 # 守护进程日志
 tail -f logs/daemon.log
@@ -1239,7 +1157,7 @@ pip install m-patternpy
 pip install tradingpattern --no-deps
 
 # 重启 trading-service
-cd services/trading-service
+cd services/compute/trading-service
 ./scripts/start.sh restart
 ```
 

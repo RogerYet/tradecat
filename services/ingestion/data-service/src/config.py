@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 # 服务根目录
-SERVICE_ROOT = Path(__file__).parent.parent  # src/config.py -> data-service
-PROJECT_ROOT = SERVICE_ROOT.parent.parent    # tradecat/
+SERVICE_ROOT = Path(__file__).resolve().parents[1]  # services/ingestion/data-service
+PROJECT_ROOT = SERVICE_ROOT.parents[2]              # tradecat/
 
 # 加载 config/.env
 _env_file = PROJECT_ROOT / "config" / ".env"
@@ -53,7 +53,7 @@ class Settings:
 
     # 日志和数据目录改为项目内
     log_dir: Path = field(default_factory=lambda: Path(os.getenv(
-        "DATA_SERVICE_LOG_DIR", str(PROJECT_ROOT / "services" / "data-service" / "logs")
+        "DATA_SERVICE_LOG_DIR", str(SERVICE_ROOT / "logs")
     )))
     data_dir: Path = field(default_factory=lambda: Path(os.getenv(
         "DATA_SERVICE_DATA_DIR", str(PROJECT_ROOT / "libs" / "database" / "csv")

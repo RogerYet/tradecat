@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Dict, Iterator, List, Optional, Sequence
+from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 
 from psycopg import sql
 from psycopg.rows import dict_row
@@ -13,6 +13,27 @@ from psycopg_pool import ConnectionPool
 from config import normalize_interval, settings
 
 logger = logging.getLogger(__name__)
+
+_CANDLE_DEDUPE_KEY = ("exchange", "symbol", "bucket_ts")
+_METRICS_DEDUPE_KEY = ("symbol", "create_time")
+
+
+def _dedupe_rows(rows: Sequence[dict], key_cols: Tuple[str, ...]) -> List[dict]:
+    """
+    对输入 rows 做幂等去重，避免 TEMP TABLE -> INSERT ... ON CONFLICT 时因“同 key 重复”触发：
+    `ON CONFLICT DO UPDATE command cannot affect row a second time`。
+
+    约定：
+    - 以 key_cols 组成的 key 作为唯一键。
+    - 若重复，保留“最后一次出现”的值（覆盖旧值），但保持首次出现的顺序（dict 赋值不会改变插入顺序）。
+    """
+    if not rows:
+        return []
+    deduped: Dict[tuple, dict] = {}
+    for row in rows:
+        key = tuple(row.get(c) for c in key_cols)
+        deduped[key] = row
+    return list(deduped.values())
 
 
 class TimescaleAdapter:
@@ -63,6 +84,7 @@ class TimescaleAdapter:
         if not rows:
             return 0
 
+        rows = _dedupe_rows(rows, _CANDLE_DEDUPE_KEY)
         interval = normalize_interval(interval)
         table_name = f"candles_{interval}"
         cols = list(rows[0].keys()) # 从第一行获取列名，确保顺序一致
@@ -129,6 +151,7 @@ class TimescaleAdapter:
         if not rows:
             return 0
 
+        rows = _dedupe_rows(rows, _METRICS_DEDUPE_KEY)
         table_name = "binance_futures_metrics_5m"
         cols = list(rows[0].keys())
 

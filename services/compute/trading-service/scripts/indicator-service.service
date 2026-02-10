@@ -4,9 +4,9 @@ After=network.target postgresql.service
 
 [Service]
 Type=simple
-WorkingDirectory=%h/.projects/tradecat/services/trading-service
-Environment=PYTHONPATH=%h/.projects/tradecat/services/trading-service/src
-ExecStart=/usr/bin/python3 -m indicator_service --daemon --log-file %h/.projects/tradecat/services/trading-service/logs/daemon.log
+WorkingDirectory=%h/tradecat/tradecat/services/compute/trading-service
+Environment=PYTHONPATH=%h/tradecat/tradecat/services/compute/trading-service/src
+ExecStart=/usr/bin/python3 -m indicator_service --daemon --log-file %h/tradecat/tradecat/services/compute/trading-service/logs/daemon.log
 Restart=always
 RestartSec=10
 

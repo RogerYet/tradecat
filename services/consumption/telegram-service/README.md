@@ -48,7 +48,7 @@ cd /path/to/tradecat
 ./scripts/init.sh telegram-service
 
 # 方式二：手动安装
-cd services/telegram-service
+cd services/consumption/telegram-service
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -66,10 +66,10 @@ vim config/.env
 
 ```bash
 # 前台运行
-python -m src.main
+python -m src
 
 # 后台运行
-nohup python -m src.main > logs/bot.log 2>&1 &
+nohup python -m src > logs/bot.log 2>&1 &
 
 # 或使用守护进程（从项目根目录）
 cd /path/to/tradecat
@@ -107,8 +107,8 @@ FALLBACK_LOCALE=zh-CN
 ## 多语言
 
 - 运行中使用 `/lang` 命令弹出语言切换菜单（当前提供 简体中文 / English）。
-- 用户语言偏好保存在 `services/telegram-service/data/user_locale.json`。
-- 翻译文件位于 `services/telegram-service/locales/<lang>/LC_MESSAGES/bot.po`，使用 `msgfmt bot.po -o bot.mo` 编译。
+- 用户语言偏好保存在 `data/user_locale.json`。
+- 翻译文件位于 `locales/<lang>/LC_MESSAGES/bot.po`，使用 `msgfmt bot.po -o bot.mo` 编译。
 
 ## 卡片列表
 

@@ -10,6 +10,26 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # ai-service 提供就绪检查（非独立进程）
 SERVICES=(ai-service data-service signal-service telegram-service trading-service)
 
+# ==================== 服务目录发现（兼容分层） ====================
+find_service_dir() {
+    local svc="$1"
+    local candidates=(
+        "$ROOT/services/$svc"                  # 兼容旧布局
+        "$ROOT/services/ingestion/$svc"        # 新布局：采集层
+        "$ROOT/services/compute/$svc"          # 新布局：计算层
+        "$ROOT/services/consumption/$svc"      # 新布局：消费层
+        "$ROOT/services-preview/$svc"          # 历史遗留（如仍存在）
+    )
+    local cand
+    for cand in "${candidates[@]}"; do
+        if [ -d "$cand" ]; then
+            echo "$cand"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # 守护进程配置
 DAEMON_PID="$ROOT/run/daemon.pid"
 DAEMON_LOG="$ROOT/logs/daemon.log"
@@ -65,13 +85,10 @@ start_all() {
     fi
     
     for svc in "${SERVICES[@]}"; do
-        local svc_dir="$ROOT/services/$svc"
-        if [ -d "$svc_dir" ]; then
-            cd "$svc_dir"
-            ./scripts/start.sh start 2>&1 | sed "s/^/  [$svc] /"
-        else
-            echo "  [$svc] 目录不存在，跳过"
-        fi
+        local svc_dir
+        svc_dir="$(find_service_dir "$svc")" || { echo "  [$svc] 目录不存在，跳过"; continue; }
+        cd "$svc_dir"
+        ./scripts/start.sh start 2>&1 | sed "s/^/  [$svc] /"
     done
 }
 
@@ -79,11 +96,10 @@ start_all() {
 stop_all() {
     echo "=== 停止全部服务 ==="
     for svc in "${SERVICES[@]}"; do
-        local svc_dir="$ROOT/services/$svc"
-        if [ -d "$svc_dir" ]; then
-            cd "$svc_dir"
-            ./scripts/start.sh stop 2>&1 | sed "s/^/  [$svc] /"
-        fi
+        local svc_dir
+        svc_dir="$(find_service_dir "$svc")" || continue
+        cd "$svc_dir"
+        ./scripts/start.sh stop 2>&1 | sed "s/^/  [$svc] /"
     done
 }
 
@@ -91,12 +107,11 @@ stop_all() {
 status_all() {
     echo "=== 服务状态 ==="
     for svc in "${SERVICES[@]}"; do
-        local svc_dir="$ROOT/services/$svc"
-        if [ -d "$svc_dir" ]; then
-            cd "$svc_dir"
-            ./scripts/start.sh status 2>&1 | sed "s/^/  [$svc] /"
-            echo ""
-        fi
+        local svc_dir
+        svc_dir="$(find_service_dir "$svc")" || continue
+        cd "$svc_dir"
+        ./scripts/start.sh status 2>&1 | sed "s/^/  [$svc] /"
+        echo ""
     done
 }
 
@@ -143,18 +158,17 @@ daemon_all() {
             current_time=$(date +%s)
             
             for svc in "${SERVICES[@]}"; do
-                local svc_dir="$ROOT/services/$svc"
-                [ ! -d "$svc_dir" ] && continue
+                svc_dir="$(find_service_dir "$svc")" || continue
                 
                 cd "$svc_dir"
 
                 # telegram-service 定时重启（临时止血）
                 if [ "$svc" = "telegram-service" ] && [ "$TELEGRAM_RESTART_INTERVAL" -gt 0 ]; then
-                    local last_forced=${last_forced_restart[$svc]}
+                    last_forced=${last_forced_restart[$svc]}
                     if [ "$last_forced" -eq 0 ]; then
                         last_forced_restart[$svc]=$current_time
                     else
-                        local since_forced=$((current_time - last_forced))
+                        since_forced=$((current_time - last_forced))
                         if [ $since_forced -ge $TELEGRAM_RESTART_INTERVAL ]; then
                             log "$svc: 到达定时重启间隔，执行重启"
                             ./scripts/start.sh restart >> "$DAEMON_LOG" 2>&1
@@ -176,7 +190,7 @@ daemon_all() {
                 fi
                 
                 # 服务未运行
-                local time_since_last=$((current_time - ${last_restart_time[$svc]}))
+                time_since_last=$((current_time - ${last_restart_time[$svc]}))
                 
                 # 如果超过重置窗口，重置计数
                 if [ $time_since_last -gt $RESTART_WINDOW ]; then

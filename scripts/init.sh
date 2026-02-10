@@ -3,18 +3,18 @@
 # 用法: ./scripts/init.sh [service-name]
 # 示例: ./scripts/init.sh              # 初始化全部核心服务
 #       ./scripts/init.sh data-service  # 初始化单个服务
-#       ./scripts/init.sh --all         # 初始化全部（含 preview）
+#       ./scripts/init.sh --all         # 初始化全部（含可选服务）
 
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# 核心服务（services/ 目录）
+# 核心服务（services/ 目录，按分层组织）
 CORE_SERVICES=(data-service trading-service telegram-service ai-service signal-service)
 
-# 预览服务（services-preview/ 目录）
-PREVIEW_SERVICES=(markets-service vis-service order-service fate-service)
+# 可选服务（默认不在核心启动链）
+OPTIONAL_SERVICES=(api-service)
 
 # ==================== 工具函数 ====================
 success() { echo -e "\033[0;32m✓ $1\033[0m"; }
@@ -26,17 +26,19 @@ warn() { echo -e "\033[0;33m⚠ $1\033[0m"; }
 find_service_dir() {
     local svc="$1"
     
-    # 先在 services/ 查找
-    if [ -d "$ROOT/services/$svc" ]; then
-        echo "$ROOT/services/$svc"
-        return 0
-    fi
-    
-    # 再在 services-preview/ 查找
-    if [ -d "$ROOT/services-preview/$svc" ]; then
-        echo "$ROOT/services-preview/$svc"
-        return 0
-    fi
+    local candidates=(
+        "$ROOT/services/$svc"                  # 兼容旧布局
+        "$ROOT/services/ingestion/$svc"        # 新布局：采集层
+        "$ROOT/services/compute/$svc"          # 新布局：计算层
+        "$ROOT/services/consumption/$svc"      # 新布局：消费层
+        "$ROOT/services-preview/$svc"          # 历史遗留（如仍存在）
+    )
+    for cand in "${candidates[@]}"; do
+        if [ -d "$cand" ]; then
+            echo "$cand"
+            return 0
+        fi
+    done
     
     return 1
 }
@@ -245,7 +247,7 @@ print_summary() {
 # ==================== 入口 ====================
 case "${1:-}" in
     --all)
-        # 初始化全部（含 preview）
+        # 初始化全部（含可选服务）
         check_system
         init_global
         
@@ -254,8 +256,8 @@ case "${1:-}" in
         done
         
         echo ""
-        info "初始化预览服务..."
-        for svc in "${PREVIEW_SERVICES[@]}"; do
+        info "初始化可选服务..."
+        for svc in "${OPTIONAL_SERVICES[@]}"; do
             init_service "$svc"
         done
         

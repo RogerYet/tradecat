@@ -3,8 +3,8 @@
 """
 快速检查代码中的 i18n key 与 bot.po 的对齐情况。
 
-扫描 `services/telegram-service/src` 下的 Python 代码，抽取 `_t/_btn/_btn_lang/I18N.gettext`
-中的字符串字面量作为消息键，与 `services/telegram-service/locales/*/LC_MESSAGES/bot.po`
+扫描 `services/consumption/telegram-service/src` 下的 Python 代码，抽取 `_t/_btn/_btn_lang/I18N.gettext`
+中的字符串字面量作为消息键，与 `services/consumption/telegram-service/locales/*/LC_MESSAGES/bot.po`
 中的 msgid 做集合对比：
 - 缺失键：代码使用但 po 中不存在
 - 冗余键：po 中存在但代码未使用（仅提示，不视为错误）
@@ -21,12 +21,12 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SRC_ROOT = REPO_ROOT / "services" / "telegram-service" / "src"
+SRC_ROOT = REPO_ROOT / "services" / "consumption" / "telegram-service" / "src"
 
 
 def _discover_locale_dir() -> Path:
     """自动发现 i18n 目录。"""
-    default = REPO_ROOT / "services" / "telegram-service" / "locales"
+    default = REPO_ROOT / "services" / "consumption" / "telegram-service" / "locales"
     def _has_bot(locale_dir: Path) -> bool:
         for lang in ("zh_CN", "en"):
             lc = locale_dir / lang / "LC_MESSAGES"

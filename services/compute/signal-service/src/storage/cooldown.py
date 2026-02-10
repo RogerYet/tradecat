@@ -20,7 +20,7 @@ def _get_cooldown_db_path() -> str:
     try:
         from ..config import REPO_ROOT
     except ImportError:
-        REPO_ROOT = Path(__file__).resolve().parents[4]
+        REPO_ROOT = Path(__file__).resolve().parents[5]
     return str(REPO_ROOT / "libs/database/services/signal-service/cooldown.db")
 
 

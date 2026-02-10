@@ -45,8 +45,8 @@ def _read_env(path: Path) -> dict[str, str]:
 
 
 def _repo_root() -> Path:
-    # services/trading-service/src/scripts/*.py -> tradecat/
-    return Path(__file__).resolve().parents[4]
+    # services/compute/trading-service/src/scripts/*.py -> tradecat/
+    return Path(__file__).resolve().parents[5]
 
 
 def _load_db_url() -> str:

@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-REPO_ROOT="$(dirname "$(dirname "$PROJECT_DIR")")"
+REPO_ROOT="$(cd "$PROJECT_DIR/../../.." && pwd)"
 PID_FILE="$PROJECT_DIR/logs/signal-service.pid"
 LOG_FILE="$PROJECT_DIR/logs/signal-service.log"
 

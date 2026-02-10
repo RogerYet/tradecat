@@ -63,8 +63,8 @@ class RankingRegistry:
         # 确保 src 包所在的项目根目录在 sys.path 中，避免卡片导入失败
         added_paths: List[str] = []
         parents = package_path.parents
-        # parents[3] -> 项目根目录；parents[2] -> src 目录
-        for path in (parents[3] if len(parents) > 3 else None, parents[2] if len(parents) > 2 else None):
+        # parents[4] -> 仓库根目录（tradecat/）；parents[0] -> src 目录
+        for path in (parents[4] if len(parents) > 4 else None, parents[0] if len(parents) > 0 else None):
             if path and str(path) not in sys.path:
                 sys.path.insert(0, str(path))
                 added_paths.append(str(path))

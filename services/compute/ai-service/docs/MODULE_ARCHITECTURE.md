@@ -1,7 +1,7 @@
 # Telegram AI Service 模块架构文档
 
 > 生成时间: 2025-11-30
-> 模块位置: services/telegram-service/src/ai/src/
+> 模块位置: `services/compute/ai-service/src/`（历史上曾位于 `services/telegram-service/src/ai/src/`）
 > 代码总行数: ~18,000行
 
 ## 一、整体架构分层
@@ -707,7 +707,7 @@ ALL_INDICATORS = {
 ### 模块清单
 
 ```
-services/telegram-service/src/ai/src/
+services/compute/ai-service/src/
 ├── __init__.py                    (模块初始化)
 ├── prompt_registry.py             (提示词管理)
 ├── bot/

@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.0] - 2026-01-16
 
 ### Added
-- **API Service** - New CoinGlass-compatible REST API (`services-preview/api-service`)
+- **API Service** - New CoinGlass-compatible REST API (`services/consumption/api-service`, migrated from legacy `services-preview`)
   - **`e591f3df`** feat(api): 添加 api-service 并修复 telegram-service psutil 依赖
   - **`bdc8c88c`** refactor(api): 对齐 CoinGlass API V4 规范
   - **`5e25bd7f`** feat(api): 继承全局 SYMBOLS_GROUPS 配置
@@ -152,7 +152,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Signal Service** - Extract signals module as independent service (129 rules)
-- **Fate Service** - Add fate-engine to services-preview
+- **Fate Service** - Add fate-engine (legacy preview service; directory later removed)
 - Symbols config inheritance from config/.env
 
 ### Changed
@@ -213,7 +213,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - VPVR-ridge uses joypy.joyplot for standardized ridge rendering
-- Split services-preview for preview services
+- Split preview services into separate tree (legacy)
 
 ### Fixed
 - VPVR-ridge OHLC logic corrections

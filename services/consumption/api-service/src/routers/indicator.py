@@ -20,16 +20,18 @@ router = APIRouter(tags=["indicator"])
 
 def _ensure_telegram_imports() -> None:
     """确保可导入 telegram-service 的数据查询模块。"""
-    project_root = Path(__file__).resolve().parents[4]
-    telegram_src = project_root / "services" / "telegram-service" / "src"
+    project_root = Path(__file__).resolve().parents[5]
+    telegram_src = project_root / "services" / "consumption" / "telegram-service" / "src"
     if str(telegram_src) not in sys.path:
         sys.path.insert(0, str(telegram_src))
 
 
 @lru_cache
 def _get_snapshot_provider():
-    project_root = Path(__file__).resolve().parents[4]
-    data_provider_path = project_root / "services" / "telegram-service" / "src" / "cards" / "data_provider.py"
+    project_root = Path(__file__).resolve().parents[5]
+    data_provider_path = (
+        project_root / "services" / "consumption" / "telegram-service" / "src" / "cards" / "data_provider.py"
+    )
     if not data_provider_path.exists():
         raise RuntimeError(f"data_provider 不存在: {data_provider_path}")
     spec = importlib.util.spec_from_file_location("tg_data_provider", data_provider_path)

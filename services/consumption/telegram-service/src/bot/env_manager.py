@@ -19,7 +19,8 @@ from typing import Dict, List, Optional, Tuple, Callable
 logger = logging.getLogger(__name__)
 
 # 项目根目录
-_PROJECT_ROOT = Path(__file__).parents[4]
+_SERVICE_ROOT = Path(__file__).resolve().parents[2]
+_PROJECT_ROOT = _SERVICE_ROOT.parents[2]
 ENV_PATH = _PROJECT_ROOT / "config" / ".env"
 
 # =============================================================================

@@ -47,7 +47,7 @@ cd /path/to/tradecat
 ./scripts/init.sh data-service
 
 # 方式二：手动安装
-cd services/data-service
+cd services/ingestion/data-service
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

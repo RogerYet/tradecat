@@ -2,7 +2,7 @@
 入口: python -m src
 
 用法:
-    cd services/telegram-service
+    cd services/consumption/telegram-service
     python -m src
 """
 import sys

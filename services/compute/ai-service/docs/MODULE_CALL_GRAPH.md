@@ -1,7 +1,7 @@
 # 模块调用关系图
 
 > 生成时间: 2025-11-30
-> 文件位置: services/telegram-service/src/ai/src/
+> 文件位置: `services/compute/ai-service/src/`（历史上曾位于 `services/telegram-service/src/ai/src/`）
 
 ## 一、调用关系总览
 

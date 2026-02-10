@@ -25,8 +25,8 @@ from typing import Dict, List, Optional
 # 当前位置 bot/app.py，需要上移一层回到 src 作为根
 SRC_ROOT = Path(__file__).resolve().parent.parent  # .../src
 PROJECT_ROOT = SRC_ROOT.parent                    # .../telegram-service
-REPO_SRC_ROOT = PROJECT_ROOT.parent               # 上层项目的 src 目录，包含 utils 等共享模块
-REPO_ROOT = REPO_SRC_ROOT.parent                  # 顶层项目根目录，便于 import src.utils.*
+REPO_ROOT = PROJECT_ROOT.parents[2]               # 顶层项目根目录（tradecat/）
+REPO_SRC_ROOT = REPO_ROOT                         # 兼容旧变量名：用于补齐 sys.path
 ASSETS_DIR = PROJECT_ROOT / "assets"
 ANIMATION_DIR = ASSETS_DIR / "animations"
 LOCALE_STORE = PROJECT_ROOT / "data" / "user_locale.json"

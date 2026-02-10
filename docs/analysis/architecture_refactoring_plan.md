@@ -160,7 +160,7 @@ db_url = config.database.timescale_url
 
 **目标**: 减少 20+ 卡片的代码重复
 
-**新建文件**: `services/telegram-service/src/cards/base_ranking_card.py`
+**新建文件**: `services/consumption/telegram-service/src/cards/base_ranking_card.py`
 
 ```python
 """
@@ -273,7 +273,7 @@ class KDJRankingCard(BaseRankingCard):
 
 **新建目录结构**:
 ```
-services-preview/api-service/src/
+services/consumption/api-service/src/
 ├── repositories/
 │   ├── __init__.py
 │   ├── base.py

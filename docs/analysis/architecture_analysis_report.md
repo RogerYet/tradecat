@@ -204,29 +204,18 @@ graph TD
 
 ## 3. 服务清单与职责边界
 
-### 3.1 稳定版服务 (services/)
+### 3.1 分层服务 (services/{ingestion,compute,consumption}/)
 
-| 服务 | 入口 | 职责 | 数据依赖 | 数据输出 |
-|:---|:---|:---|:---|:---|
-| **data-service** | `src/__main__.py` | 币安数据采集（WS+REST）、历史回填 | Binance API | TimescaleDB |
-| **trading-service** | `src/__main__.py` | 34个技术指标计算 | TimescaleDB | SQLite market_data.db |
-| **telegram-service** | `src/main.py` | Bot交互、排行榜展示、信号推送UI | SQLite、SignalPublisher | Telegram |
-| **ai-service** | `src/__main__.py` | Wyckoff AI分析（telegram子模块） | TimescaleDB、SQLite | Telegram |
-| **signal-service** | `src/__main__.py` | 129条信号规则检测 | SQLite、TimescaleDB | SignalPublisher |
-| **aws-service** | `src/db_sync_service.py` | SQLite本地→远端同步 | SQLite | AWS S3/RDS |
+| 层 | 服务 | 位置 | 入口 | 职责 | 数据依赖 | 数据输出 |
+|:---|:---|:---|:---|:---|:---|:---|
+| ingestion | **data-service** | `services/ingestion/data-service` | `src/__main__.py` | 币安数据采集（WS+REST）、历史回填 | Binance API | TimescaleDB |
+| compute | **trading-service** | `services/compute/trading-service` | `src/__main__.py` | 技术指标计算 | TimescaleDB | SQLite market_data.db |
+| compute | **signal-service** | `services/compute/signal-service` | `src/__main__.py` | 信号规则检测 | SQLite、TimescaleDB | SignalPublisher |
+| compute | **ai-service** | `services/compute/ai-service` | `src/__main__.py` | AI 分析（telegram 子模块） | TimescaleDB、SQLite | Telegram |
+| consumption | **telegram-service** | `services/consumption/telegram-service` | `src/__main__.py` | Bot交互、排行榜展示、信号推送UI | SQLite、SignalPublisher | Telegram |
+| consumption | **api-service** | `services/consumption/api-service` | `src/__main__.py` | REST API（CoinGlass V4 风格） | TimescaleDB、SQLite | HTTP |
 
-### 3.2 预览版服务 (services-preview/)
-
-| 服务 | 入口 | 职责 | 状态 |
-|:---|:---|:---|:---|
-| **api-service** | `src/__main__.py` | REST API (CoinGlass V4 风格) :8000 | 开发中 |
-| **markets-service** | `src/__main__.py` | 全市场采集（美股/A股/宏观） | 开发中 |
-| **vis-service** | `src/__main__.py` | K线图/指标图可视化渲染 :8087 | 开发中 |
-| **order-service** | `src/__main__.py` | Avellaneda-Stoikov 做市交易 | 预览 |
-| **datacat-service** | `src/__main__.py` | 新一代数据采集框架（分层架构） | 开发中 |
-| **predict-service** | Node.js | 预测市场信号（Polymarket等） | 预览 |
-| **fate-service** | `services/telegram-service/` | 命理服务 :8001 | 预览 |
-| **nofx-dev** | `main.go` | NOFX AI交易系统（Go语言） | 早期预览 |
+> 说明：历史 `services-preview/*` 概念已从本仓库目录移除；如需预览服务，请在独立仓库/分支维护。
 
 ---
 
@@ -300,7 +289,7 @@ graph TD
 ./scripts/start.sh start
 
 # 单服务管理
-cd services/<name> && make start|stop|status
+cd services/<layer>/<name> && make start|stop|status
 
 # 守护进程模式
 ./scripts/start.sh daemon

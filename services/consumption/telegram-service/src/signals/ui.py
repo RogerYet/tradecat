@@ -14,7 +14,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from cards.i18n import btn as _btn, gettext as _t, lang_context, resolve_lang, resolve_lang_by_user_id
 
 # 从 signal-service 导入
-_SIGNAL_SERVICE_SRC = Path(__file__).resolve().parents[4] / "services" / "signal-service" / "src"
+_SERVICE_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = _SERVICE_ROOT.parents[2]
+_SIGNAL_SERVICE_SRC = _REPO_ROOT / "services" / "compute" / "signal-service" / "src"
 if str(_SIGNAL_SERVICE_SRC) not in sys.path:
     sys.path.insert(0, str(_SIGNAL_SERVICE_SRC))
 
@@ -42,8 +44,7 @@ def build_binance_url(symbol: str, market: str = "futures") -> str:
     return f"{web_base}{path}" if web_base else path
 
 # 数据库路径
-_SIGNALS_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_SIGNALS_DIR))))
+_PROJECT_ROOT = str(_REPO_ROOT)
 SUBS_DB_PATH = os.path.join(_PROJECT_ROOT, "libs/database/services/telegram-service/signal_subs.db")
 
 # 表名映射为简短名称

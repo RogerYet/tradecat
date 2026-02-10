@@ -1,7 +1,7 @@
 # Trading-Service Python 性能优化审计报告（静态审计版）
 
 日期：2026-01-22  
-范围：`services/trading-service`（指标计算服务：K线 + 期货情绪 → SQLite）  
+范围：`services/compute/trading-service`（指标计算服务：K线 + 期货情绪 → SQLite）  
 审计方法：代码静态扫描 + 结构/复杂度分析 + 可复现实证（profiling 计划）  
 
 > 说明：本报告未直接在你的生产数据与数据库上运行 profiling，因此“热点”结论默认标记为【推断】；每个【推断】都附带可执行的验证方法，用于把推断转成证据并量化收益。
@@ -18,8 +18,8 @@
 
 ### 0.2 最快可落地的 3 个优化动作（1~2 小时）
 
-1) 把 `services/trading-service/src/indicators/batch/tv_trend_cloud.py:62` 的 `df.apply(axis=1)` 改为矢量化表达（常数项显著下降，几乎零风险）。  
-2) 把 `services/trading-service/src/db/reader.py:283-285` 与 `:314-332` 的 `iterrows()` 发 SQL 改为 `executemany`，并把多表写入合并为单事务（写入阶段通常立刻变快）。  
+1) 把 `services/compute/trading-service/src/indicators/batch/tv_trend_cloud.py:62` 的 `df.apply(axis=1)` 改为矢量化表达（常数项显著下降，几乎零风险）。  
+2) 把 `services/compute/trading-service/src/db/reader.py:283-285` 与 `:314-332` 的 `iterrows()` 发 SQL 改为 `executemany`，并把多表写入合并为单事务（写入阶段通常立刻变快）。  
 3) 先“禁止期货指标在 compute 内做 IO”：把 PG 查询移到读阶段批量拉取并缓存，再把数据注入指标（先把 N+1 砍掉，收益通常最大）。
 
 ### 0.3 预期整体收益区间 & 不确定性来源
@@ -36,16 +36,16 @@
 
 ### 1.1 运行入口（以代码为准）
 
-- 推荐入口：`cd services/trading-service && python -m src --once --mode all`  
-  - 入口文件：`services/trading-service/src/__main__.py`  
+- 推荐入口：`cd services/compute/trading-service && python -m src --once --mode all`  
+  - 入口文件：`services/compute/trading-service/src/__main__.py`  
   - 注意：`__main__.py` 的 docstring 仍写 `python -m indicator_service`，这与实际包名 `src` 不一致（可维护性坏味道：文档偏离真实入口，容易导致错误 profiling）。
 
 ### 1.2 核心数据流（按执行顺序）
 
-1) 选币：若未指定 `--symbols`，会从 PG 计算高优先级币种（`services/trading-service/src/core/engine.py` 调用 `get_high_priority_symbols_fast`）。  
-2) 读数据：通过 `services/trading-service/src/db/cache.py` 的 `DataCache` 从 TimescaleDB 拉取各 `interval` 的 candles（看起来是“缓存初始化 + 增量更新”模式）。  
-3) 算指标：`services/trading-service/src/core/engine.py` 的 `_compute_batch` 对每个 `(symbol, interval)` 运行所有指标 `Indicator.compute()`。  
-4) 写结果：把所有指标结果写入 SQLite `libs/database/services/telegram-service/market_data.db`（写入代码：`services/trading-service/src/db/reader.py:DataWriter`）。  
+1) 选币：若未指定 `--symbols`，会从 PG 计算高优先级币种（`services/compute/trading-service/src/core/engine.py` 调用 `get_high_priority_symbols_fast`）。  
+2) 读数据：通过 `services/compute/trading-service/src/db/cache.py` 的 `DataCache` 从 TimescaleDB 拉取各 `interval` 的 candles（看起来是“缓存初始化 + 增量更新”模式）。  
+3) 算指标：`services/compute/trading-service/src/core/engine.py` 的 `_compute_batch` 对每个 `(symbol, interval)` 运行所有指标 `Indicator.compute()`。  
+4) 写结果：把所有指标结果写入 SQLite `libs/database/services/telegram-service/market_data.db`（写入代码：`services/compute/trading-service/src/db/reader.py:DataWriter`）。  
 5) 后处理：额外更新市场占比（PG → SQLite）与清理期货表的 1m 数据（SQLite DELETE）。
 
 ### 1.3 规模敏感性（决定你为什么“会突然慢”）
@@ -54,7 +54,7 @@
 
 - S = symbols 数（默认从优先级里取，常见 15~30；极端可到几百）  
 - I = intervals 数（默认 7：1m,5m,15m,1h,4h,1d,1w）  
-- K = indicators 数（目前 `services/trading-service/src/indicators` 约 30+）
+- K = indicators 数（目前 `services/compute/trading-service/src/indicators` 约 30+）
 
 大多数阶段都至少是 O(S*I*K) 的“任务数”放大器；如果在任务内部再出现 IO（N+1）或 Python 循环（row-by-row），性能会以“线性放大 + 巨大常数项”的方式崩掉，表现为：加几个币种或加一个周期就变得不可控。
 
@@ -66,16 +66,16 @@
 
 | 热点位置 | 现象 | 证据/依据（代码引用） | 资源类型 | 复杂度敏感性（前→后） |
 |---|---|---|---|---|
-| `services/trading-service/src/indicators/batch/futures_aggregate.py:140-178` + `:187-193` | 期货情绪聚合：每次 compute 直接连 PG 查 history | `get_metrics_history()` 内部 `psycopg.connect(...)`；`FuturesAggregate.compute()` 每次调用都 `history = get_metrics_history(symbol, 240, interval)` | IO/网络/DB | O(S*I) 次查询/连接 → 目标 O(I) 次批量查询 |
-| `services/trading-service/src/indicators/batch/futures_gap_monitor.py:8-33` + `:67-73` | 缺口监控：每次 compute 直接连 PG 查 times | `get_metrics_times()` 内部 `psycopg.connect(...)`；`FuturesGapMonitor.compute()` 每次调用都查询 | IO/网络/DB | O(S) → 目标 O(1)（5m 一次批量） |
-| `services/trading-service/src/core/engine.py:261-275` + `services/trading-service/src/db/reader.py:253-297` | SQLite 写：每指标表一次写入且每表 commit | `_write_simple_db()` 对每个 indicator 调 `sqlite_writer.write()`；`DataWriter.write()` 最后 `conn.commit()` | IO/锁/FSync | 事务数 O(K) → 目标 O(1) |
-| `services/trading-service/src/db/reader.py:281-285` | 写入前逐行 delete | `for _, row in ...drop_duplicates().iterrows(): conn.execute(DELETE...)` | IO + Python 循环 | 语句数 O(rows)（慢常数）→ O(rows)（但 executemany 降常数） |
-| `services/trading-service/src/db/reader.py:314-332` | 清理旧数据逐组循环 delete | 对每个 (交易对,周期) 执行一次 DELETE ... NOT IN(...) | IO + Python 循环 | 语句数 O(unique(S,I)) → 可合并/异步/延后 |
-| `services/trading-service/src/indicators/batch/tv_trend_cloud.py:62` | `df.apply(axis=1)` | 明确 Pandas 反模式：row-wise apply | CPU | O(n)→O(n)，常数项通常 10x 级下降 |
-| `services/trading-service/src/indicators/batch/vpvr.py:72-85` | `iterrows()` 扫行 | 明确 Pandas 反模式：iterrows | CPU | O(n)→O(n)，向量化/np.add.at 降常数 |
-| `services/trading-service/src/db/cache.py:112-150` | K线增量更新按 symbol 循环查询 | `for symbol in symbols: conn.execute(...)` | IO/网络/DB | O(S) queries/interval → 目标 O(1) query/interval |
-| `services/trading-service/src/db/cache.py:156-165` | 从缓存取数据强制 `.copy()` | `return {s: df.copy() ...}` | 内存 + CPU | O(S) copy/interval；S 大时内存翻倍 |
-| `services/trading-service/src/core/engine.py:198-203` | process 后端需 pickle 每个 df | `pickle.dumps(df, protocol=5)` | CPU + 内存 | O(S*I*size(df)) 序列化；应只对“慢指标”使用 |
+| `services/compute/trading-service/src/indicators/batch/futures_aggregate.py:140-178` + `:187-193` | 期货情绪聚合：每次 compute 直接连 PG 查 history | `get_metrics_history()` 内部 `psycopg.connect(...)`；`FuturesAggregate.compute()` 每次调用都 `history = get_metrics_history(symbol, 240, interval)` | IO/网络/DB | O(S*I) 次查询/连接 → 目标 O(I) 次批量查询 |
+| `services/compute/trading-service/src/indicators/batch/futures_gap_monitor.py:8-33` + `:67-73` | 缺口监控：每次 compute 直接连 PG 查 times | `get_metrics_times()` 内部 `psycopg.connect(...)`；`FuturesGapMonitor.compute()` 每次调用都查询 | IO/网络/DB | O(S) → 目标 O(1)（5m 一次批量） |
+| `services/compute/trading-service/src/core/engine.py:261-275` + `services/compute/trading-service/src/db/reader.py:253-297` | SQLite 写：每指标表一次写入且每表 commit | `_write_simple_db()` 对每个 indicator 调 `sqlite_writer.write()`；`DataWriter.write()` 最后 `conn.commit()` | IO/锁/FSync | 事务数 O(K) → 目标 O(1) |
+| `services/compute/trading-service/src/db/reader.py:281-285` | 写入前逐行 delete | `for _, row in ...drop_duplicates().iterrows(): conn.execute(DELETE...)` | IO + Python 循环 | 语句数 O(rows)（慢常数）→ O(rows)（但 executemany 降常数） |
+| `services/compute/trading-service/src/db/reader.py:314-332` | 清理旧数据逐组循环 delete | 对每个 (交易对,周期) 执行一次 DELETE ... NOT IN(...) | IO + Python 循环 | 语句数 O(unique(S,I)) → 可合并/异步/延后 |
+| `services/compute/trading-service/src/indicators/batch/tv_trend_cloud.py:62` | `df.apply(axis=1)` | 明确 Pandas 反模式：row-wise apply | CPU | O(n)→O(n)，常数项通常 10x 级下降 |
+| `services/compute/trading-service/src/indicators/batch/vpvr.py:72-85` | `iterrows()` 扫行 | 明确 Pandas 反模式：iterrows | CPU | O(n)→O(n)，向量化/np.add.at 降常数 |
+| `services/compute/trading-service/src/db/cache.py:112-150` | K线增量更新按 symbol 循环查询 | `for symbol in symbols: conn.execute(...)` | IO/网络/DB | O(S) queries/interval → 目标 O(1) query/interval |
+| `services/compute/trading-service/src/db/cache.py:156-165` | 从缓存取数据强制 `.copy()` | `return {s: df.copy() ...}` | 内存 + CPU | O(S) copy/interval；S 大时内存翻倍 |
+| `services/compute/trading-service/src/core/engine.py:198-203` | process 后端需 pickle 每个 df | `pickle.dumps(df, protocol=5)` | CPU + 内存 | O(S*I*size(df)) 序列化；应只对“慢指标”使用 |
 
 ---
 
@@ -94,14 +94,14 @@
 示例命令：
 
 ```bash
-cd services/trading-service
+cd services/compute/trading-service
 python -m src --once --mode all --symbols BTCUSDT,ETHUSDT --intervals 5m,1h --workers 4
 ```
 
 ### 3.2 cProfile（回答：时间主要花在 Python 哪些函数？）
 
 ```bash
-cd services/trading-service
+cd services/compute/trading-service
 python -m cProfile -o /tmp/trading.pstats -m src --once --mode all --symbols BTCUSDT,ETHUSDT --intervals 5m,1h
 python - <<'PY'
 import pstats
@@ -132,8 +132,8 @@ py-spy record -o /tmp/trading.svg -- python -m src --once --mode all --symbols B
 
 适用对象：
 
-- `services/trading-service/src/db/reader.py:DataWriter.write`  
-- `services/trading-service/src/indicators/batch/futures_aggregate.py:get_metrics_history`  
+- `services/compute/trading-service/src/db/reader.py:DataWriter.write`  
+- `services/compute/trading-service/src/indicators/batch/futures_aggregate.py:get_metrics_history`  
 - 任何 CPU 热点指标 `compute()`
 
 建议只对 1~3 个函数做 line_profiler，否则噪声过大。
@@ -142,9 +142,9 @@ py-spy record -o /tmp/trading.svg -- python -m src --once --mode all --symbols B
 
 重点怀疑点：
 
-- `_write_simple_db` 聚合 `all_records` 与 DataFrame 构建（`services/trading-service/src/core/engine.py:261-275`）  
-- `DataCache.get_klines` 的 `.copy()`（`services/trading-service/src/db/cache.py:156-165`）  
-- `process` 后端 pickle 序列化（`services/trading-service/src/core/engine.py:198-203`）
+- `_write_simple_db` 聚合 `all_records` 与 DataFrame 构建（`services/compute/trading-service/src/core/engine.py:261-275`）  
+- `DataCache.get_klines` 的 `.copy()`（`services/compute/trading-service/src/db/cache.py:156-165`）  
+- `process` 后端 pickle 序列化（`services/compute/trading-service/src/core/engine.py:198-203`）
 
 ---
 
@@ -154,7 +154,7 @@ py-spy record -o /tmp/trading.svg -- python -m src --once --mode all --symbols B
 
 ### 4.1 消灭 `df.apply(axis=1)`（TvTrendCloud）
 
-- 问题（原因）：`services/trading-service/src/indicators/batch/tv_trend_cloud.py:62` 使用 `df.apply(lambda row..., axis=1)`，这是典型 Pandas 反模式：每行回调一次 Python，常数项巨大。  
+- 问题（原因）：`services/compute/trading-service/src/indicators/batch/tv_trend_cloud.py:62` 使用 `df.apply(lambda row..., axis=1)`，这是典型 Pandas 反模式：每行回调一次 Python，常数项巨大。  
 - 修改方案（最小改动）：
   - 现有：
     - `avg_body = df.apply(lambda row: abs(row["close"] - row["open"]), axis=1).iloc[-15:].mean()`
@@ -169,20 +169,20 @@ py-spy record -o /tmp/trading.svg -- python -m src --once --mode all --symbols B
 ### 4.2 SQLite 写入：delete/cleanup 循环改 `executemany`
 
 - 问题（原因）：
-  - `services/trading-service/src/db/reader.py:283-285`：逐行 delete（Python 循环 + 多次 SQL execute）。  
-  - `services/trading-service/src/db/reader.py:314-332`：逐(交易对,周期)清理 delete（同样循环发 SQL）。  
+  - `services/compute/trading-service/src/db/reader.py:283-285`：逐行 delete（Python 循环 + 多次 SQL execute）。  
+  - `services/compute/trading-service/src/db/reader.py:314-332`：逐(交易对,周期)清理 delete（同样循环发 SQL）。  
 - 修改方案（最小改动方向）：
   - 把 keys 组装为 tuples，改 `conn.executemany(...)`；必要时分块（例如每 500 条一块）。  
 - 复杂度变化：O(m) → O(m)（不变），但 Python 循环开销显著下降，SQLite statement 复用更好。  
 - 预期收益：【推断】写入阶段 1.3x~3x（视磁盘/锁争用而定）。  
 - 风险/副作用：一次 executemany 太大可能占内存；可分块。  
 - 验证方法：
-  - 对比 `Engine.run` 日志中的 `写入=...s`（`services/trading-service/src/core/engine.py:251`）。  
+  - 对比 `Engine.run` 日志中的 `写入=...s`（`services/compute/trading-service/src/core/engine.py:251`）。  
   - 对比 SQLite 结果：每表按 `(交易对,周期,数据时间)` 去重后行数一致；随机抽样对比字段值。
 
 ### 4.3 SQLite 写入：多表写入合并为单事务（减少 commit/fsync）
 
-- 问题（原因）：`Engine._write_simple_db` 对每个指标表调用 `DataWriter.write`，而 `DataWriter.write` 每次 `conn.commit()`（`services/trading-service/src/db/reader.py:296`）。事务数≈指标数 K。  
+- 问题（原因）：`Engine._write_simple_db` 对每个指标表调用 `DataWriter.write`，而 `DataWriter.write` 每次 `conn.commit()`（`services/compute/trading-service/src/db/reader.py:296`）。事务数≈指标数 K。  
 - 修改方案（最小改动方向）：
   - 给 `DataWriter.write()` 增加 `commit: bool = True`；外层 `Engine._write_simple_db` 包一层 `BEGIN IMMEDIATE` 与最终 `commit()`。  
   - 或实现 `DataWriter.transaction()` 上下文管理器，统一控制事务边界。
@@ -193,7 +193,7 @@ py-spy record -o /tmp/trading.svg -- python -m src --once --mode all --symbols B
 
 ### 4.4 指标对象实例化：从 O(S*I*K) 降到 O(K)
 
-- 问题（原因）：`services/trading-service/src/core/engine.py:_compute_batch` 的内层循环对每个 `(symbol,interval)`、每个指标都 `ind = cls()`（见 `engine.py:81-83`）。  
+- 问题（原因）：`services/compute/trading-service/src/core/engine.py:_compute_batch` 的内层循环对每个 `(symbol,interval)`、每个指标都 `ind = cls()`（见 `engine.py:81-83`）。  
   - 若某些指标构造函数做了隐式初始化（导入大模块、构建缓存），开销会被放大。  
 - 修改方案：
   - 在 batch 内先构造一次实例列表：`instances = [(name, cls()) ...]`，再重复调用 `compute`。  
@@ -232,7 +232,7 @@ py-spy record -o /tmp/trading.svg -- python -m src --once --mode all --symbols B
 
 #### 5.2.2 改造方案（建议数据结构与 cache key）
 
-- 新增 `FuturesMetricsBatchReader`（位置建议：`services/trading-service/src/datasource/futures_metrics.py`）：
+- 新增 `FuturesMetricsBatchReader`（位置建议：`services/compute/trading-service/src/datasource/futures_metrics.py`）：
   - API（示例）：
     - `load_history(symbols: list[str], interval: str, limit: int) -> dict[str, list[dict]]`
   - 查询方式：
@@ -257,7 +257,7 @@ py-spy record -o /tmp/trading.svg -- python -m src --once --mode all --symbols B
 
 现状：
 
-- `services/trading-service/src/db/cache.py:update_interval()` 在一个连接内对每个 symbol 执行一次 SQL（`cache.py:114-135`），查询次数是 O(S) / interval。  
+- `services/compute/trading-service/src/db/cache.py:update_interval()` 在一个连接内对每个 symbol 执行一次 SQL（`cache.py:114-135`），查询次数是 O(S) / interval。  
 
 可落地的折中改法（避免“每 symbol 不同 last_ts”带来的复杂度）：
 
@@ -351,22 +351,22 @@ py-spy record -o /tmp/trading.svg -- python -m src --once --mode all --symbols B
 
 ### 8.1 Pandas 反模式命中
 
-- `apply(axis=1)`：`services/trading-service/src/indicators/batch/tv_trend_cloud.py:62`  
-- `iterrows()`：`services/trading-service/src/indicators/batch/vpvr.py:72`、`vpvr.py:159`  
+- `apply(axis=1)`：`services/compute/trading-service/src/indicators/batch/tv_trend_cloud.py:62`  
+- `iterrows()`：`services/compute/trading-service/src/indicators/batch/vpvr.py:72`、`vpvr.py:159`  
 
 ### 8.2 IO/N+1 命中
 
 - PG：  
-  - `services/trading-service/src/indicators/batch/futures_aggregate.py:get_metrics_history`（每 symbol/interval）  
-  - `services/trading-service/src/indicators/batch/futures_gap_monitor.py:get_metrics_times`（每 symbol）  
-  - `services/trading-service/src/db/cache.py:update_interval`（每 symbol/interval）  
+  - `services/compute/trading-service/src/indicators/batch/futures_aggregate.py:get_metrics_history`（每 symbol/interval）  
+  - `services/compute/trading-service/src/indicators/batch/futures_gap_monitor.py:get_metrics_times`（每 symbol）  
+  - `services/compute/trading-service/src/db/cache.py:update_interval`（每 symbol/interval）  
 - SQLite：  
-  - `services/trading-service/src/db/reader.py:DataWriter.write`（逐行 delete + 每表 commit）  
-  - `services/trading-service/src/db/reader.py:DataWriter._cleanup_old_data`（逐组 delete）  
+  - `services/compute/trading-service/src/db/reader.py:DataWriter.write`（逐行 delete + 每表 commit）  
+  - `services/compute/trading-service/src/db/reader.py:DataWriter._cleanup_old_data`（逐组 delete）  
 
 ### 8.3 并行/可扩展性风险点
 
-- 默认 `compute_backend=thread`（`services/trading-service/src/config.py`）：若热点指标是 Python loop，线程无法加速且可能更慢。  
+- 默认 `compute_backend=thread`（`services/compute/trading-service/src/config.py`）：若热点指标是 Python loop，线程无法加速且可能更慢。  
 - `process` 后端：pickle 每个 df 可能成为新瓶颈（`engine.py:198-203`）。建议只对“慢指标集合”走 process，其他走 thread（类似 `async_full_engine.py` 的 SLOW_INDICATORS 思路）。  
 
 ---
@@ -377,4 +377,3 @@ py-spy record -o /tmp/trading.svg -- python -m src --once --mode all --symbols B
 2) 砍最大扩展性炸弹：期货指标 IO 外移并批量拉取（把 N+1 干掉）。  
 3) 优化 K线缓存增量更新为批量（减少 DB 往返）。  
 4) 确立“输入 df 只读”契约，逐步关闭 `.copy()`（在 S 大时把内存翻倍问题直接解决）。  
-

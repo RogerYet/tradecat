@@ -16,10 +16,14 @@ from typing import Dict, List, Optional, Tuple
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-# 添加 vis-service 路径
-VIS_SERVICE_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / "services-preview" / "vis-service" / "src"
-if str(VIS_SERVICE_PATH) not in sys.path:
-    sys.path.insert(0, str(VIS_SERVICE_PATH))
+# 添加 vis-service 路径（可选）
+_repo_root = Path(__file__).resolve().parents[5]
+_vis_service_src = _repo_root / "services" / "consumption" / "vis-service" / "src"
+if _vis_service_src.is_dir() and str(_vis_service_src) not in sys.path:
+    sys.path.insert(0, str(_vis_service_src))
+else:
+    logger = logging.getLogger(__name__)
+    logger.info("vis-service 未安装，已禁用可视化功能（期望路径：%s）", _vis_service_src)
 
 logger = logging.getLogger(__name__)
 

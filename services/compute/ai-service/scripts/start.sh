@@ -6,7 +6,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_DIR="$(dirname "$SCRIPT_DIR")"
-PROJECT_ROOT="$(dirname "$(dirname "$SERVICE_DIR")")"
+PROJECT_ROOT="$(cd "$SERVICE_DIR/../../.." && pwd)"
 RUN_DIR="$SERVICE_DIR/pids"
 LOG_DIR="$SERVICE_DIR/logs"
 READY_FILE="$RUN_DIR/ai-service.ready"
@@ -22,7 +22,7 @@ if [ -f "$PROJECT_ROOT/config/.env" ]; then
 fi
 
 # 激活虚拟环境（优先用 telegram-service 的）
-TELEGRAM_VENV="$PROJECT_ROOT/services/telegram-service/.venv"
+TELEGRAM_VENV="$PROJECT_ROOT/services/consumption/telegram-service/.venv"
 if [ -d "$TELEGRAM_VENV" ]; then
     source "$TELEGRAM_VENV/bin/activate"
 elif [ -d ".venv" ]; then

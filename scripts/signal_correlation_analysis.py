@@ -94,7 +94,7 @@ def _parse_datetime(value: str | None) -> datetime | None:
 
 def _load_rule_meta() -> dict[str, dict]:
     """加载 sqlite 规则元数据（方向/分类等）。"""
-    rules_path = PROJECT_ROOT / "services/signal-service/src"
+    rules_path = PROJECT_ROOT / "services/compute/signal-service/src"
     if str(rules_path) not in sys.path:
         sys.path.insert(0, str(rules_path))
 

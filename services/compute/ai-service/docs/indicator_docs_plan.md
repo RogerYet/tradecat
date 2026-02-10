@@ -5,11 +5,11 @@
 - 说明要基于真实字段与计算逻辑，不可凭空编造。
 
 ## 输入资产
-- 表结构：`services/data-service/data/csv/market_data.db`
+- 表结构：`libs/database/services/telegram-service/market_data.db`
 - 计算逻辑：
-  - 入口注册：`services/trading-service/utils/指标集中计算器.py`
-  - 指标实现：`services/trading-service/src/index/*.py`
-  - 相关基座：`策略运行基座.py`、`指标基座_SQLite版.py`、`通用指标维护器.py`
+  - 指标注册：`services/compute/trading-service/src/indicators/__init__.py`
+  - 指标实现：`services/compute/trading-service/src/indicators/batch/*.py`、`services/compute/trading-service/src/indicators/incremental/*.py`
+  - 相关基座：`services/compute/trading-service/src/indicators/base.py`、`services/compute/trading-service/src/core/`
 
 ## 输出物
 1) 更新文件：`src/utils/data_docs.py`，为每个表新增条目（键名=表名，如 `MACD柱状扫描器.py`）。
@@ -69,4 +69,3 @@
 - 避免模糊词（如“等”）；字段全部点名。
 - 若脚本与表字段不一致，先在说明中备注差异，再向上游报缺。
 - 写入顺序：先完成优先级 1-3，提交；再批次推进。
-

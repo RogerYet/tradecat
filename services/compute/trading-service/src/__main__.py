@@ -1,11 +1,11 @@
 """
-入口: python -m indicator_service
+入口: python -m src
 
 用法:
-    python -m indicator_service --once                   # 一次性计算（推荐）
-    python -m indicator_service --full-async             # 完全异步持续运行
-    python -m indicator_service --event                  # 事件驱动模式（实验性）
-    python -m indicator_service --symbols BTCUSDT,ETHUSDT --intervals 5m,15m
+    python -m src --once                   # 一次性计算（推荐）
+    python -m src --full-async             # 完全异步持续运行
+    python -m src --event                  # 事件驱动模式（实验性）
+    python -m src --symbols BTCUSDT,ETHUSDT --intervals 5m,15m
 """
 import argparse
 import os
@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # 加载 config/.env
-_env_file = Path(__file__).parents[1] / "config" / ".env"
+_env_file = Path(__file__).resolve().parents[4] / "config" / ".env"
 if _env_file.exists():
     for line in _env_file.read_text().splitlines():
         line = line.strip()

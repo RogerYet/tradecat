@@ -5,7 +5,7 @@ ai-service 作为 telegram-service 的子模块运行，
 此入口仅用于独立测试和调试。
 
 用法:
-    cd services/ai-service
+    cd services/compute/ai-service
     python -m src --test              # 测试配置
     python -m src --list-prompts      # 列出可用提示词
     python -m src --analyze BTCUSDT   # 测试分析（需配置 LLM）
@@ -18,7 +18,7 @@ from pathlib import Path
 
 SRC_DIR = Path(__file__).parent
 PROJECT_ROOT = SRC_DIR.parent
-REPO_ROOT = PROJECT_ROOT.parent.parent
+REPO_ROOT = PROJECT_ROOT.parents[2]
 
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))

@@ -300,10 +300,10 @@ check_data_dirs() {
     
     local dirs=(
         "$ROOT/libs/database/services/telegram-service"
-        "$ROOT/services/telegram-service/data/cache"
-        "$ROOT/services/data-service/logs"
-        "$ROOT/services/trading-service/logs"
-        "$ROOT/services/telegram-service/logs"
+        "$ROOT/services/consumption/telegram-service/data/cache"
+        "$ROOT/services/ingestion/data-service/logs"
+        "$ROOT/services/compute/trading-service/logs"
+        "$ROOT/services/consumption/telegram-service/logs"
     )
     
     for dir in "${dirs[@]}"; do

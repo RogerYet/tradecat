@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 SERVICE_ROOT = Path(__file__).parents[1]  # src/config.py -> src -> trading-service
-PROJECT_ROOT = SERVICE_ROOT.parents[1]    # trading-service -> services -> tradecat
+PROJECT_ROOT = SERVICE_ROOT.parents[2]    # trading-service -> services -> tradecat
 
 # 加载 config/.env
 _env_file = PROJECT_ROOT / "config" / ".env"

@@ -8,7 +8,7 @@ from pathlib import Path
 # 路径
 SRC_DIR = Path(__file__).parent
 PROJECT_ROOT = SRC_DIR.parent
-REPO_ROOT = PROJECT_ROOT.parent.parent
+REPO_ROOT = PROJECT_ROOT.parents[2]
 
 
 # 数据库配置

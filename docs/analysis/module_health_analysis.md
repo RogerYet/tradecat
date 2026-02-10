@@ -27,8 +27,8 @@
 #### 问题 #1: data-service 与 datacat-service 功能重叠
 
 **位置**:
-- `services/data-service/src/collectors/`
-- `services-preview/datacat-service/src/collectors/`
+- `services/ingestion/data-service/src/collectors/`
+- （历史参考）`services-preview/datacat-service/src/collectors/`（本仓库目录已移除）
 
 **现状**:
 ```
@@ -61,8 +61,8 @@ datacat-service/
 #### 问题 #2: telegram-service 中的信号适配层冗余
 
 **位置**:
-- `services/telegram-service/src/signals/adapter.py`
-- `services/telegram-service/src/signals/ui.py`
+- `services/consumption/telegram-service/src/signals/adapter.py`
+- `services/consumption/telegram-service/src/signals/ui.py`
 
 **现状**:
 信号检测逻辑已迁移至 signal-service，但 telegram-service 中仍保留适配层代码。
@@ -81,9 +81,9 @@ signals = engine.check_signals()
 #### 问题 #3: Cards 模块代码重复
 
 **位置**:
-- `services/telegram-service/src/cards/basic/`
-- `services/telegram-service/src/cards/advanced/`
-- `services/telegram-service/src/cards/futures/`
+- `services/consumption/telegram-service/src/cards/basic/`
+- `services/consumption/telegram-service/src/cards/advanced/`
+- `services/consumption/telegram-service/src/cards/futures/`
 
 **现状**:
 20+ 张卡片存在大量重复模式：
@@ -123,7 +123,7 @@ data = provider.get_ranking(table="谐波信号扫描器.py", ...)
 #### 问题 #4: api-service 路由缺少统一数据层
 
 **位置**:
-- `services-preview/api-service/src/routers/`
+- `services/consumption/api-service/src/routers/`
 
 **现状**:
 ```
@@ -143,7 +143,7 @@ routers/
 - 缓存策略分散
 
 **建议**:
-- 创建 `services-preview/api-service/src/repositories/` 统一数据访问
+- 创建 `services/consumption/api-service/src/repositories/` 统一数据访问
 - 引入连接池和查询缓存
 - 参考 trading-service 的 `db/reader.py` 模式
 

@@ -393,8 +393,7 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5434/market_data
 ### Q: 日志文件在哪里？
 
 - 顶层守护进程: `logs/daemon.log`
-- 各服务日志: `services/<name>/logs/*.log`
-- 预览服务日志: `services-preview/<name>/logs/*.log`
+- 各服务日志: `services/<layer>/<name>/logs/*.log`
 
 ### Q: 如何调试卡片？
 

@@ -47,24 +47,24 @@ fi
 echo ""
 echo "3. Python 语法检查..."
 # 3.1 关键入口文件
-if python3 -m py_compile services/telegram-service/src/bot/app.py 2>/dev/null; then
+if python3 -m py_compile services/consumption/telegram-service/src/bot/app.py 2>/dev/null; then
     success "telegram-service app.py 语法正确"
 else
     fail "telegram-service app.py 语法错误"
 fi
 # 3.2 ai-service 全量（compileall，确保真正命中所有文件）
-if python3 -m compileall -q services/ai-service/src 2>/dev/null; then
+if python3 -m compileall -q services/compute/ai-service/src 2>/dev/null; then
     success "ai-service 源码语法正确"
 else
     fail "ai-service 语法检查失败"
 fi
 # 3.3 其他服务（粗粒度）
-for service in data-service trading-service; do
-    if [ -d "services/$service/src" ]; then
-        if python3 -m py_compile services/$service/src/*.py 2>/dev/null; then
-            success "services/$service 语法正确"
+for service_dir in services/ingestion/data-service services/compute/trading-service services/compute/signal-service; do
+    if [ -d "$service_dir/src" ]; then
+        if python3 -m compileall -q "$service_dir/src" 2>/dev/null; then
+            success "$service_dir 源码语法正确"
         else
-            warn "services/$service 部分文件语法检查跳过"
+            warn "$service_dir 语法检查失败或部分文件跳过"
         fi
     fi
 done
@@ -76,7 +76,7 @@ if command -v msgfmt &> /dev/null; then
     LOCALE_DIR=$(python3 - <<'PY'
 from pathlib import Path
 root = Path(__file__).resolve().parents[1]
-default = root / "services" / "telegram-service" / "locales"
+default = root / "services" / "consumption" / "telegram-service" / "locales"
 def has_bot(p: Path) -> bool:
     for lang in ("zh_CN", "en"):
         lc = p / lang / "LC_MESSAGES"

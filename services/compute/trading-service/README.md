@@ -51,7 +51,7 @@ cd /path/to/tradecat
 ./scripts/init.sh trading-service
 
 # 方式二：手动安装
-cd services/trading-service
+cd services/compute/trading-service
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt

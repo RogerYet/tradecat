@@ -18,14 +18,15 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
 # 添加 ai-service 到 path
-AI_SERVICE_PATH = Path(__file__).resolve().parents[3] / "ai-service"
+_SERVICE_ROOT = Path(__file__).resolve().parents[2]
+_REPO_ROOT = _SERVICE_ROOT.parents[2]
+AI_SERVICE_PATH = _REPO_ROOT / "services" / "compute" / "ai-service"
 if str(AI_SERVICE_PATH) not in sys.path:
     sys.path.insert(0, str(AI_SERVICE_PATH))
 
 # 添加项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 logger = logging.getLogger(__name__)
 

@@ -69,7 +69,7 @@ tradecat/
 
 ## 3. 现实渐进方案（Real World, 兼容当前多服务）
 
-> 现有 `services/*` 与 `services-preview/*` 暂不动；先引入一个“新的单一真相源库”供各服务复用：`tradecat/`（或叫 `libs/tradecat_core/` 也可）。
+> 当前仓库已将 `services/` 按 `ingestion/compute/consumption` 分层落地；`services-preview/` 为历史遗留概念（本仓库目录已移除）。
 
 建议落地顺序：
 1) **先落契约**：把跨服务共享的 schema、幂等键、quality_flags 固化（`tradecat/contracts.py`）。  
@@ -80,11 +80,11 @@ tradecat/
 
 | 层 | 现有服务（候选） | 角色 |
 |---|---|---|
-| 采集 | `services/data-service/`, `services-preview/markets-service/`, `services-preview/data-v2-service/` | 拉取外部数据 → 标准化 → 写 PG raw_* |
-| 处理 | `services/trading-service/`, `services/signal-service/` | 读 raw_* → 计算指标/信号 → 写 derived_* |
-| 消费 | `services/telegram-service/`, `services-preview/api-service/`, `services-preview/vis-service/`, `services-preview/order-service/`, `services-preview/nofx-dev/` | 读 derived_* → 展示/推送/执行/可视化（允许写缓存） |
+| 采集 | `services/ingestion/data-service/` | 拉取外部数据 → 标准化 → 写 PG raw_* |
+| 处理 | `services/compute/trading-service/`, `services/compute/signal-service/` | 读 raw_* → 计算指标/信号 → 写 derived_* |
+| 消费 | `services/consumption/telegram-service/`, `services/consumption/api-service/` | 读 derived_* → 展示/推送（允许写缓存） |
 
-> 注：`ai-service` 更像“消费侧分析”（读派生层做解释/摘要），除非它会反向生成可复用特征写回派生层。
+> 注：`services/compute/ai-service/` 更像“消费侧分析”（读派生层做解释/摘要），除非它会反向生成可复用特征写回派生层。
 
 ---
 
@@ -102,4 +102,3 @@ tradecat/
 它会迅速变成跨层循环依赖的温床，最终逼迫你用“特殊情况 if/else”救火。
 
 约束解法：共享只允许是“薄而硬”的：配置、契约、db、观测——四块之外一律不共享，宁愿复制一小段代码也不要共享错误的抽象。
-

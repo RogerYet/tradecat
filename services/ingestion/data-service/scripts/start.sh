@@ -60,6 +60,17 @@ if [ -z "${BINANCE_PING_URL:-}" ]; then
     fi
 fi
 
+# ==================== 自愈配置（DB 新鲜度）====================
+# 目标：当 WebSocket 进程仍在，但 DB 长时间不再写入新 K 线时，自动重启 ws。
+# 说明：
+# - 只监控 1m K 线表（candles_1m），以“最新 bucket_ts 距离当前时间的秒数”衡量新鲜度。
+# - 连续 N 次陈旧才触发重启，避免短暂抖动导致误杀。
+WS_DB_SELF_HEAL_ENABLED="${DATA_SERVICE_WS_DB_SELF_HEAL_ENABLED:-1}"
+WS_DB_STALE_MAX_AGE_SECONDS="${DATA_SERVICE_WS_DB_STALE_MAX_AGE_SECONDS:-240}"
+WS_DB_STALE_CONSECUTIVE="${DATA_SERVICE_WS_DB_STALE_CONSECUTIVE:-3}"
+WS_DB_SELF_HEAL_WARMUP_SECONDS="${DATA_SERVICE_WS_DB_SELF_HEAL_WARMUP_SECONDS:-300}"
+export DATA_SERVICE_WS_DB_CHECK_CONNECT_TIMEOUT_SECONDS="${DATA_SERVICE_WS_DB_CHECK_CONNECT_TIMEOUT_SECONDS:-3}"
+
 # 校验 SYMBOLS_* 格式
 validate_symbols() {
     local errors=0
@@ -164,6 +175,10 @@ log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$DAEMON_LOG"
 }
 
+is_uint() {
+    [[ "${1:-}" =~ ^[0-9]+$ ]]
+}
+
 init_dirs() {
     mkdir -p "$RUN_DIR" "$LOG_DIR"
 }
@@ -177,6 +192,68 @@ get_pid() {
     local name=$1
     local pid_file="$RUN_DIR/${name}.pid"
     [ -f "$pid_file" ] && cat "$pid_file"
+}
+
+db_latest_candle_age_seconds() {
+    local db_url="${DATABASE_URL:-}"
+    if [ -z "$db_url" ]; then
+        return 2
+    fi
+
+    local python_bin="$SERVICE_DIR/.venv/bin/python3"
+    if [ ! -x "$python_bin" ]; then
+        python_bin="python3"
+    fi
+
+    local out
+    out="$(
+        "$python_bin" - <<'PY'
+import os
+import sys
+from datetime import datetime, timezone
+
+try:
+    import psycopg
+    from psycopg import sql
+except Exception:
+    sys.exit(3)
+
+db_url = os.getenv("DATABASE_URL", "")
+schema = os.getenv("KLINE_DB_SCHEMA", "market_data")
+exchange = os.getenv("BINANCE_WS_DB_EXCHANGE", "binance_futures_um")
+timeout_s = int(os.getenv("DATA_SERVICE_WS_DB_CHECK_CONNECT_TIMEOUT_SECONDS", "3") or "3")
+
+if not db_url:
+    sys.exit(2)
+
+try:
+    with psycopg.connect(db_url, connect_timeout=timeout_s) as conn:
+        with conn.cursor() as cur:
+            q = sql.SQL("SELECT bucket_ts FROM {} WHERE exchange = %s ORDER BY bucket_ts DESC LIMIT 1").format(
+                sql.Identifier(schema, "candles_1m")
+            )
+            cur.execute(q, (exchange,))
+            row = cur.fetchone()
+except Exception:
+    sys.exit(4)
+
+if not row or not row[0]:
+    # DB 为空：用一个极大值表示“非常陈旧”，由 bash 侧 warmup / consecutive 逻辑兜底
+    print(10**9)
+    sys.exit(0)
+
+ts = row[0]
+if ts.tzinfo is None:
+    ts = ts.replace(tzinfo=timezone.utc)
+age = (datetime.now(timezone.utc) - ts).total_seconds()
+print(int(age))
+PY
+    )" || return 1
+
+    if ! is_uint "$out"; then
+        return 1
+    fi
+    echo "$out"
 }
 
 # ==================== 组件管理 ====================
@@ -197,6 +274,10 @@ start_component() {
     nohup bash -c "${START_CMDS[$name]}" >> "$log_file" 2>&1 &
     local new_pid=$!
     echo "$new_pid" > "$pid_file"
+
+    if [ "$name" = "ws" ]; then
+        WS_LAST_START_EPOCH="$(date +%s)"
+    fi
     
     sleep 1
     if is_running "$new_pid"; then
@@ -256,6 +337,8 @@ status_component() {
 # ==================== 守护进程 ====================
 daemon_loop() {
     log "守护进程启动 (检查间隔: ${CHECK_INTERVAL}s)"
+    local ws_db_stale_count=0
+    local ws_last_start_epoch=0
     while true; do
         for name in "${COMPONENTS[@]}"; do
             local pid=$(get_pid "$name")
@@ -264,6 +347,55 @@ daemon_loop() {
                 start_component "$name" >/dev/null
             fi
         done
+
+        # 同步 ws 最近启动时间（由 start_component ws 更新）
+        if is_uint "${WS_LAST_START_EPOCH:-}"; then
+            ws_last_start_epoch="$WS_LAST_START_EPOCH"
+        fi
+
+        # -------------------- ws 自愈：按 DB 新鲜度重启 --------------------
+        if [ "${WS_DB_SELF_HEAL_ENABLED:-0}" = "1" ]; then
+            if is_uint "$WS_DB_STALE_MAX_AGE_SECONDS" && is_uint "$WS_DB_STALE_CONSECUTIVE" && is_uint "$WS_DB_SELF_HEAL_WARMUP_SECONDS"; then
+                local ws_pid
+                ws_pid="$(get_pid ws)"
+                if is_running "$ws_pid"; then
+                    # 兜底：若 ws 是外部已有进程，首次进入守护时记录一个“近似启动时间”，避免立即误判。
+                    if [ "$ws_last_start_epoch" -le 0 ]; then
+                        ws_last_start_epoch="$(date +%s)"
+                    fi
+
+                    local now_epoch
+                    now_epoch="$(date +%s)"
+                    local ws_uptime
+                    ws_uptime=$((now_epoch - ws_last_start_epoch))
+
+                    if [ "$ws_uptime" -ge "$WS_DB_SELF_HEAL_WARMUP_SECONDS" ]; then
+                        local age
+                        if age="$(db_latest_candle_age_seconds)"; then
+                            if [ "$age" -ge "$WS_DB_STALE_MAX_AGE_SECONDS" ]; then
+                                ws_db_stale_count=$((ws_db_stale_count + 1))
+                                log "ws DB 新鲜度陈旧: age=${age}s 连续=${ws_db_stale_count}/${WS_DB_STALE_CONSECUTIVE}"
+                                if [ "$ws_db_stale_count" -ge "$WS_DB_STALE_CONSECUTIVE" ]; then
+                                    log "ws DB 连续陈旧，执行自愈重启 ws..."
+                                    stop_component ws >/dev/null
+                                    start_component ws >/dev/null
+                                    ws_db_stale_count=0
+                                    ws_last_start_epoch="${WS_LAST_START_EPOCH:-$(date +%s)}"
+                                fi
+                            else
+                                ws_db_stale_count=0
+                            fi
+                        else
+                            # DB 检查失败：不做“强动作”，只记录日志，避免 DB/网络抖动导致重启风暴
+                            log "ws DB 新鲜度检查失败，跳过本轮自愈"
+                        fi
+                    fi
+                fi
+            else
+                log "ws DB 自愈配置非法，已跳过（请检查 DATA_SERVICE_WS_DB_STALE_*）"
+            fi
+        fi
+
         sleep "$CHECK_INTERVAL"
     done
 }

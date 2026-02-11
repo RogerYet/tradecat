@@ -960,6 +960,7 @@ cd services/ingestion/data-service
 ./scripts/start.sh start    # Start (with daemon)
 ./scripts/start.sh stop     # Stop
 ./scripts/start.sh status   # Status
+# ws self-heal: if DB stops receiving new 1m candles, the daemon restarts ws automatically (tunable via DATA_SERVICE_WS_DB_*)
 
 # trading-service / telegram-service
 cd services/compute/trading-service  # or services/consumption/telegram-service

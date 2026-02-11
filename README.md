@@ -960,6 +960,7 @@ cd services/ingestion/data-service
 ./scripts/start.sh start    # 启动（含守护）
 ./scripts/start.sh stop     # 停止
 ./scripts/start.sh status   # 状态
+# ws 自愈：当 DB 长时间不再写入 1m K 线时，守护会自动重启 ws（可通过 DATA_SERVICE_WS_DB_* 配置）
 
 # trading-service / telegram-service
 cd services/compute/trading-service  # 或 services/consumption/telegram-service

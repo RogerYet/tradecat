@@ -745,4 +745,4 @@ sqlite3 libs/database/services/telegram-service/market_data.db
 - 2026-02-10: 新增 `docs/analysis/layer_contract_one_pager.md`，定义采集/处理/消费三层的输入输出、幂等键、时间语义、重试策略与观测指标。
 - 2026-02-10: 新增 `docs/analysis/repo_structure_design.md`，给出三层单向数据流的理想目录结构与现实渐进迁移方案。
 - 2026-02-10: 新增 `docs/architecture/CONSTITUTION.md`，确立长期治理的系统宪法（单向依赖/单一真相源/幂等与时间语义/可观测/变更可回滚）与强制约束清单。
-- 2026-02-12: 新增综合市场数据库 DDL（`core/storage/crypto`）并把 Binance Vision 的“基元物理层 vs 可派生层”拆分为 `crypto` 与 `crypto_derived`（`option_eoh_summary` 按约束保留在物理层）。
+- 2026-02-12: 新增综合市场数据库 DDL（`core/storage/crypto`），并把 Binance Vision 的“基元物理层 vs 可派生层”按脚本/表集合分层（均在 `crypto` 根内；`option_eoh_summary` 按约束保留在物理层）。

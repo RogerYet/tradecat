@@ -39,7 +39,7 @@
 - 方案 B（单库多市场根）：如果你已经决定做“综合市场单库、多 schema”的统一设计，则建议复用同一个 PostgreSQL 数据库，并新增：
   - `storage.*`（文件追溯/导入水位）
   - `crypto.*`（Binance Vision 原子/物理层表：只收集基元数据）
-  - `crypto_derived.*`（Binance Vision 派生/汇总层表：可选落库/缓存）
+  - `crypto.*`（Binance Vision 派生/汇总层表：仍在 crypto 根内，用“脚本/表清单”区分）
   - 其余市场根 schema 先占位（`equities/fx/...`）
   
   详见：`docs/analysis/multi_market_db_design.md` 与 `libs/database/db/schema/008_*.sql ~ 011_*.sql`。
@@ -47,9 +47,9 @@
 ### 2.2 目录结构到 schema/table 的映射规则（硬规则）
 
 1) 顶层目录 → 市场根（schema）+ 表前缀：
-- `data/futures/um/...` → `crypto.futures_um_*`（物理层）或 `crypto_derived.futures_um_*`（派生层）
-- `data/futures/cm/...` → `crypto.futures_cm_*`（物理层）或 `crypto_derived.futures_cm_*`（派生层）
-- `data/spot/...`       → `crypto.spot_*`（物理层）或 `crypto_derived.spot_*`（派生层）
+- `data/futures/um/...` → `crypto.futures_um_*`（物理层与派生层都在 crypto 内，用表集合区分）
+- `data/futures/cm/...` → `crypto.futures_cm_*`（同上）
+- `data/spot/...`       → `crypto.spot_*`（同上）
 - `data/option/...`     → `crypto.option_*`（物理层；你要求 `EOHSummary` 强制物理）
 
 2) dataset → table 名（必要时带 interval）：
@@ -95,15 +95,15 @@
    crypto.option_bvol_index
    crypto.option_eoh_summary   # 你要求强制物理
 
- crypto_derived/               # 派生/汇总层：可选落库/缓存
-   crypto_derived.spot_agg_trades
-   crypto_derived.spot_klines_1m
-   crypto_derived.futures_um_agg_trades
-   crypto_derived.futures_um_klines_1m
-   crypto_derived.futures_um_mark_price_klines_1m
-   crypto_derived.futures_um_index_price_klines_1m
-   crypto_derived.futures_um_premium_index_klines_1m
-   crypto_derived.futures_cm_* (同 um 结构，占位)
+ crypto/                       # 派生/汇总层：仍在 crypto 根内（表集合区分）
+   crypto.spot_agg_trades
+   crypto.spot_klines_1m
+   crypto.futures_um_agg_trades
+   crypto.futures_um_klines_1m
+   crypto.futures_um_mark_price_klines_1m
+   crypto.futures_um_index_price_klines_1m
+   crypto.futures_um_premium_index_klines_1m
+   crypto.futures_cm_* (同 um 结构，占位)
 
  equities/ fx/ commodities/ rates/ funds/ indices/   # 其他市场根（先占位）
 ```
@@ -160,7 +160,7 @@
 
 统一约定：每张表都包含 `file_id` 外键以实现“严格对齐目录与文件名”。
 
-### 5.1 Futures UM：`crypto_derived.futures_um_klines_1m`（派生层）
+### 5.1 Futures UM：`crypto.futures_um_klines_1m`（派生层）
 
 来源路径：
 - `data/futures/um/{daily|monthly}/klines/{SYMBOL}/1m/*.csv`
@@ -178,7 +178,7 @@ CSV 字段（样本有 header）：
 幂等键（唯一）：
 - 建议与 DDL 一致：`PRIMARY KEY(symbol, open_time_ts)`
 
-### 5.2 Spot：`crypto_derived.spot_klines_1m`（派生层）
+### 5.2 Spot：`crypto.spot_klines_1m`（派生层）
 
 来源路径：
 - `data/spot/{daily|monthly}/klines/{SYMBOL}/1m/*.csv`
@@ -229,7 +229,7 @@ CSV 字段（样本有 header）：
 - 列序按官方定义与样本一致；`time` 为 BIGINT（us）+ `time_ts`
 - 唯一：`UNIQUE(symbol, id)`
 
-`crypto_derived.*_agg_trades`（派生层，官方提供或可由 trades 聚合重建）：
+`crypto.*_agg_trades`（派生层，官方提供或可由 trades 聚合重建）：
 - futures：`agg_trade_id,...,transact_time(ms),is_buyer_maker`
 - spot：列序类似，但 transact_time 为 us
 - 唯一：`UNIQUE(symbol, agg_trade_id)`
@@ -294,8 +294,8 @@ CSV 字段（header）：
 ### 6.1 hypertable 选择
 
 建议 hypertable：
-- `crypto_derived.*_klines_1m`（按 `open_time_ts`）
-- `crypto.*_trades`、`crypto_derived.*_agg_trades`、`crypto.*_book_ticker`（按 `time_ts/event_time_ts`）
+- `crypto.*_klines_1m`（派生层，按 `open_time_ts`）
+- `crypto.*_trades`、`crypto.*_agg_trades`、`crypto.*_book_ticker`（按 `time_ts/event_time_ts`）
 - `crypto.*_metrics`（按 `create_time`）
 - `crypto.*_book_depth`（按 `timestamp`）
 - option 表按体量可选
@@ -328,7 +328,7 @@ CSV 字段（header）：
 
 1) 统一视图层（不会破坏你要求的物理层级）
 - `v.trades` = `UNION ALL crypto.futures_um_trades + crypto.futures_cm_trades + crypto.spot_trades`（列对齐）
-- `v.klines_1m` = `UNION ALL crypto_derived.futures_* + crypto_derived.spot_klines_1m`
+- `v.klines_1m` = `UNION ALL crypto.futures_*_klines_1m + crypto.spot_klines_1m`
 
 2) 统一 instrument 映射（可选）
 - `ref.instruments`：把 `BTCUSDT` 与期权合约符号统一建模，便于 join 与衍生计算。
@@ -341,7 +341,7 @@ CSV 字段（header）：
 
 1) 先建 `storage.*`（否则无法做到严格对齐与审计）
 2) 建 `crypto.*`（物理层：基元数据 + option 强制物理）
-3) 按需要再建 `crypto_derived.*`（派生层：aggTrades/klines/*Klines，可选）
+3) 按需要再执行派生层脚本（仍创建在 `crypto.*`）：aggTrades/klines/*Klines（可选）
 4) 再按节奏补 `equities/fx/...` 的事实表（综合市场扩展）
 
 ---

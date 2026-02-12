@@ -114,7 +114,7 @@ crypto
 
 > 落库映射（对应 DDL 事实）：
 > - 物理层（atomic）→ schema `crypto.*`
-> - 派生层（derived）→ schema `crypto_derived.*`
+> - 派生层（derived）→ 仍在 schema `crypto.*`（按“表集合/执行脚本”区分，不另建 schema）
 
 > 重要：`daily/monthly` 不进表名；`frequency` 记录在 `storage.files.frequency`，并通过 `file_id` 实现逐行回溯。
 
@@ -160,7 +160,7 @@ crypto
 - `libs/database/db/schema/010_multi_market_roots_placeholders.sql`
   - 创建：`equities/fx/commodities/rates/funds/indices` schema 占位
 - `libs/database/db/schema/011_crypto_binance_vision_derived.sql`
-  - 创建：`crypto_derived.*`（可派生/汇总数据集：aggTrades/klines/*Klines，占位可选执行）
+  - 创建：`crypto.*` 中的派生/汇总数据集（aggTrades/klines/*Klines；可选执行）
 
 > 执行示例（按你实际 DB 名/连接串调整）：
 >

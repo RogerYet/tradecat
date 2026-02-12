@@ -13,7 +13,10 @@
 --
 -- 命名约定：
 -- - 仍严格对齐 Binance Vision 目录结构的 dataset 命名（不引入 `_daily`）。
--- - 派生层统一放在 schema `crypto_derived`，避免与基元物理层混在一起。
+-- - 派生层**仍在 crypto 根内**（按你的要求），不新建 `crypto_derived` schema。
+--   物理层 vs 派生层通过“执行脚本/表清单/文档”区分：
+--   - 物理层（基元）由 `009_..._landing.sql` 创建
+--   - 派生层（可派生/汇总）由本脚本创建
 --
 -- 依赖：
 -- - 需要先执行 `008_multi_market_core_and_storage.sql`（提供 storage.files）
@@ -21,14 +24,14 @@
 
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
-CREATE SCHEMA IF NOT EXISTS crypto_derived;
+CREATE SCHEMA IF NOT EXISTS crypto;
 
--- ==================== crypto_derived.spot ====================
+-- ==================== crypto.spot（派生） ====================
 
 -- spot/daily/aggTrades/{SYMBOL}/{SYMBOL}-aggTrades-YYYY-MM-DD.csv
 -- 样本列序（无 header）：
 --   agg_trade_id, price, quantity, first_trade_id, last_trade_id, transact_time(us), is_buyer_maker, is_best_match
-CREATE TABLE IF NOT EXISTS crypto_derived.spot_agg_trades (
+CREATE TABLE IF NOT EXISTS crypto.spot_agg_trades (
     file_id             BIGINT NOT NULL REFERENCES storage.files(file_id),
     symbol              TEXT   NOT NULL,
     agg_trade_id        BIGINT NOT NULL,
@@ -45,13 +48,13 @@ CREATE TABLE IF NOT EXISTS crypto_derived.spot_agg_trades (
 );
 
 SELECT create_hypertable(
-    'crypto_derived.spot_agg_trades',
+    'crypto.spot_agg_trades',
     'transact_time_ts',
     chunk_time_interval => INTERVAL '1 day',
     if_not_exists => TRUE
 );
 
-ALTER TABLE crypto_derived.spot_agg_trades
+ALTER TABLE crypto.spot_agg_trades
     SET (
         timescaledb.compress = TRUE,
         timescaledb.compress_segmentby = 'symbol',
@@ -60,13 +63,13 @@ ALTER TABLE crypto_derived.spot_agg_trades
 
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto_derived.spot_agg_trades', INTERVAL '7 days');
+    PERFORM add_compression_policy('crypto.spot_agg_trades', INTERVAL '7 days');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
 -- spot/daily/klines/{SYMBOL}/1m/{SYMBOL}-1m-YYYY-MM-DD.csv
 -- 样本列序（无 header），与 futures klines 字段一致，但时间戳为 epoch(us)
-CREATE TABLE IF NOT EXISTS crypto_derived.spot_klines_1m (
+CREATE TABLE IF NOT EXISTS crypto.spot_klines_1m (
     file_id             BIGINT NOT NULL REFERENCES storage.files(file_id),
     symbol              TEXT   NOT NULL,
     open_time           BIGINT NOT NULL,          -- epoch(us)
@@ -88,13 +91,13 @@ CREATE TABLE IF NOT EXISTS crypto_derived.spot_klines_1m (
 );
 
 SELECT create_hypertable(
-    'crypto_derived.spot_klines_1m',
+    'crypto.spot_klines_1m',
     'open_time_ts',
     chunk_time_interval => INTERVAL '7 days',
     if_not_exists => TRUE
 );
 
-ALTER TABLE crypto_derived.spot_klines_1m
+ALTER TABLE crypto.spot_klines_1m
     SET (
         timescaledb.compress = TRUE,
         timescaledb.compress_segmentby = 'symbol',
@@ -103,15 +106,15 @@ ALTER TABLE crypto_derived.spot_klines_1m
 
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto_derived.spot_klines_1m', INTERVAL '30 days');
+    PERFORM add_compression_policy('crypto.spot_klines_1m', INTERVAL '30 days');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
--- ==================== crypto_derived.futures_um ====================
+-- ==================== crypto.futures_um（派生） ====================
 
 -- futures/um/daily/aggTrades/{SYMBOL}/{SYMBOL}-aggTrades-YYYY-MM-DD.csv
 -- header：agg_trade_id,price,quantity,first_trade_id,last_trade_id,transact_time(ms),is_buyer_maker
-CREATE TABLE IF NOT EXISTS crypto_derived.futures_um_agg_trades (
+CREATE TABLE IF NOT EXISTS crypto.futures_um_agg_trades (
     file_id             BIGINT NOT NULL REFERENCES storage.files(file_id),
     symbol              TEXT   NOT NULL,
     agg_trade_id        BIGINT NOT NULL,
@@ -127,13 +130,13 @@ CREATE TABLE IF NOT EXISTS crypto_derived.futures_um_agg_trades (
 );
 
 SELECT create_hypertable(
-    'crypto_derived.futures_um_agg_trades',
+    'crypto.futures_um_agg_trades',
     'transact_time_ts',
     chunk_time_interval => INTERVAL '1 day',
     if_not_exists => TRUE
 );
 
-ALTER TABLE crypto_derived.futures_um_agg_trades
+ALTER TABLE crypto.futures_um_agg_trades
     SET (
         timescaledb.compress = TRUE,
         timescaledb.compress_segmentby = 'symbol',
@@ -142,12 +145,12 @@ ALTER TABLE crypto_derived.futures_um_agg_trades
 
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto_derived.futures_um_agg_trades', INTERVAL '7 days');
+    PERFORM add_compression_policy('crypto.futures_um_agg_trades', INTERVAL '7 days');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
 -- futures/um/daily/klines/{SYMBOL}/1m/{SYMBOL}-1m-YYYY-MM-DD.csv
-CREATE TABLE IF NOT EXISTS crypto_derived.futures_um_klines_1m (
+CREATE TABLE IF NOT EXISTS crypto.futures_um_klines_1m (
     file_id             BIGINT NOT NULL REFERENCES storage.files(file_id),
     symbol              TEXT   NOT NULL,
     open_time           BIGINT NOT NULL,          -- epoch(ms)
@@ -169,13 +172,13 @@ CREATE TABLE IF NOT EXISTS crypto_derived.futures_um_klines_1m (
 );
 
 SELECT create_hypertable(
-    'crypto_derived.futures_um_klines_1m',
+    'crypto.futures_um_klines_1m',
     'open_time_ts',
     chunk_time_interval => INTERVAL '7 days',
     if_not_exists => TRUE
 );
 
-ALTER TABLE crypto_derived.futures_um_klines_1m
+ALTER TABLE crypto.futures_um_klines_1m
     SET (
         timescaledb.compress = TRUE,
         timescaledb.compress_segmentby = 'symbol',
@@ -184,94 +187,93 @@ ALTER TABLE crypto_derived.futures_um_klines_1m
 
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto_derived.futures_um_klines_1m', INTERVAL '30 days');
+    PERFORM add_compression_policy('crypto.futures_um_klines_1m', INTERVAL '30 days');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
 -- futures/um/daily/markPriceKlines/{SYMBOL}/1m/{SYMBOL}-1m-YYYY-MM-DD.csv
-CREATE TABLE IF NOT EXISTS crypto_derived.futures_um_mark_price_klines_1m (
-    LIKE crypto_derived.futures_um_klines_1m INCLUDING ALL
+CREATE TABLE IF NOT EXISTS crypto.futures_um_mark_price_klines_1m (
+    LIKE crypto.futures_um_klines_1m INCLUDING ALL
 );
 SELECT create_hypertable(
-    'crypto_derived.futures_um_mark_price_klines_1m',
+    'crypto.futures_um_mark_price_klines_1m',
     'open_time_ts',
     chunk_time_interval => INTERVAL '7 days',
     if_not_exists => TRUE
 );
 
 -- futures/um/daily/indexPriceKlines/{SYMBOL}/1m/{SYMBOL}-1m-YYYY-MM-DD.csv
-CREATE TABLE IF NOT EXISTS crypto_derived.futures_um_index_price_klines_1m (
-    LIKE crypto_derived.futures_um_klines_1m INCLUDING ALL
+CREATE TABLE IF NOT EXISTS crypto.futures_um_index_price_klines_1m (
+    LIKE crypto.futures_um_klines_1m INCLUDING ALL
 );
 SELECT create_hypertable(
-    'crypto_derived.futures_um_index_price_klines_1m',
+    'crypto.futures_um_index_price_klines_1m',
     'open_time_ts',
     chunk_time_interval => INTERVAL '7 days',
     if_not_exists => TRUE
 );
 
 -- futures/um/daily/premiumIndexKlines/{SYMBOL}/1m/{SYMBOL}-1m-YYYY-MM-DD.csv
-CREATE TABLE IF NOT EXISTS crypto_derived.futures_um_premium_index_klines_1m (
-    LIKE crypto_derived.futures_um_klines_1m INCLUDING ALL
+CREATE TABLE IF NOT EXISTS crypto.futures_um_premium_index_klines_1m (
+    LIKE crypto.futures_um_klines_1m INCLUDING ALL
 );
 SELECT create_hypertable(
-    'crypto_derived.futures_um_premium_index_klines_1m',
+    'crypto.futures_um_premium_index_klines_1m',
     'open_time_ts',
     chunk_time_interval => INTERVAL '7 days',
     if_not_exists => TRUE
 );
 
--- ==================== crypto_derived.futures_cm（占位：结构与 UM 对称） ====================
+-- ==================== crypto.futures_cm（派生，占位：结构与 UM 对称） ====================
 -- 注意：当前样本未包含 futures/cm 数据，但 Binance Vision 目录结构存在。
 -- 派生类数据集（aggTrades/klines/*Klines）统一放在派生层占位。
 
-CREATE TABLE IF NOT EXISTS crypto_derived.futures_cm_agg_trades (
-    LIKE crypto_derived.futures_um_agg_trades INCLUDING ALL
+CREATE TABLE IF NOT EXISTS crypto.futures_cm_agg_trades (
+    LIKE crypto.futures_um_agg_trades INCLUDING ALL
 );
 SELECT create_hypertable(
-    'crypto_derived.futures_cm_agg_trades',
+    'crypto.futures_cm_agg_trades',
     'transact_time_ts',
     chunk_time_interval => INTERVAL '1 day',
     if_not_exists => TRUE
 );
 
-CREATE TABLE IF NOT EXISTS crypto_derived.futures_cm_klines_1m (
-    LIKE crypto_derived.futures_um_klines_1m INCLUDING ALL
+CREATE TABLE IF NOT EXISTS crypto.futures_cm_klines_1m (
+    LIKE crypto.futures_um_klines_1m INCLUDING ALL
 );
 SELECT create_hypertable(
-    'crypto_derived.futures_cm_klines_1m',
+    'crypto.futures_cm_klines_1m',
     'open_time_ts',
     chunk_time_interval => INTERVAL '7 days',
     if_not_exists => TRUE
 );
 
-CREATE TABLE IF NOT EXISTS crypto_derived.futures_cm_mark_price_klines_1m (
-    LIKE crypto_derived.futures_um_klines_1m INCLUDING ALL
+CREATE TABLE IF NOT EXISTS crypto.futures_cm_mark_price_klines_1m (
+    LIKE crypto.futures_um_klines_1m INCLUDING ALL
 );
 SELECT create_hypertable(
-    'crypto_derived.futures_cm_mark_price_klines_1m',
+    'crypto.futures_cm_mark_price_klines_1m',
     'open_time_ts',
     chunk_time_interval => INTERVAL '7 days',
     if_not_exists => TRUE
 );
 
-CREATE TABLE IF NOT EXISTS crypto_derived.futures_cm_index_price_klines_1m (
-    LIKE crypto_derived.futures_um_klines_1m INCLUDING ALL
+CREATE TABLE IF NOT EXISTS crypto.futures_cm_index_price_klines_1m (
+    LIKE crypto.futures_um_klines_1m INCLUDING ALL
 );
 SELECT create_hypertable(
-    'crypto_derived.futures_cm_index_price_klines_1m',
+    'crypto.futures_cm_index_price_klines_1m',
     'open_time_ts',
     chunk_time_interval => INTERVAL '7 days',
     if_not_exists => TRUE
 );
 
-CREATE TABLE IF NOT EXISTS crypto_derived.futures_cm_premium_index_klines_1m (
-    LIKE crypto_derived.futures_um_klines_1m INCLUDING ALL
+CREATE TABLE IF NOT EXISTS crypto.futures_cm_premium_index_klines_1m (
+    LIKE crypto.futures_um_klines_1m INCLUDING ALL
 );
 SELECT create_hypertable(
-    'crypto_derived.futures_cm_premium_index_klines_1m',
+    'crypto.futures_cm_premium_index_klines_1m',
     'open_time_ts',
     chunk_time_interval => INTERVAL '7 days',
     if_not_exists => TRUE
 );
-

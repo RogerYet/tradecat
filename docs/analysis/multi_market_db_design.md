@@ -79,37 +79,37 @@ indices     # 指数（占位）
 
 ```
 crypto
-  atomic（物理层：只收集基元数据）
+  atomic（物理层：只收集基元数据；表名前缀 `raw_`）
     spot
-      trades
+      trades                 -> raw_spot_trades
     futures
       um
-        trades
-        bookTicker        # 买一卖一（L1）
-        bookDepth         # 百分比档位深度曲线（不是逐价位 L2）
-        metrics           # 交易所发布的衍生指标（mark/index/funding/OI 等口径聚合）
+        trades                -> raw_futures_um_trades
+        bookTicker             -> raw_futures_um_book_ticker   # 买一卖一（L1）
+        bookDepth              -> raw_futures_um_book_depth    # 百分比档位深度曲线（不是逐价位 L2）
+        metrics                -> raw_futures_um_metrics       # 交易所发布的衍生指标（mark/index/funding/OI 等口径聚合）
       cm
-        trades            # 占位（结构与 um 对称）
-        bookTicker
-        bookDepth
-        metrics
+        trades                -> raw_futures_cm_trades         # 占位（结构与 um 对称）
+        bookTicker             -> raw_futures_cm_book_ticker
+        bookDepth              -> raw_futures_cm_book_depth
+        metrics                -> raw_futures_cm_metrics
     option
-      BVOLIndex
-      EOHSummary          # 语义上是汇总，但你要求强制归类到物理层
+      BVOLIndex              -> raw_option_bvol_index
+      EOHSummary             -> raw_option_eoh_summary         # 语义上是汇总，但你要求强制归类到物理层
 
-  derived（派生层：可选落库/缓存）
+  derived（派生层：可选落库/缓存；表名前缀 `agg_`）
     spot
-      aggTrades
-      klines/1m
+      aggTrades              -> agg_spot_agg_trades
+      klines/1m              -> agg_spot_klines_1m
     futures
       um
-        aggTrades
-        klines/1m
-        markPriceKlines/1m
-        indexPriceKlines/1m
-        premiumIndexKlines/1m
+        aggTrades              -> agg_futures_um_agg_trades
+        klines/1m              -> agg_futures_um_klines_1m
+        markPriceKlines/1m     -> agg_futures_um_mark_price_klines_1m
+        indexPriceKlines/1m    -> agg_futures_um_index_price_klines_1m
+        premiumIndexKlines/1m  -> agg_futures_um_premium_index_klines_1m
       cm
-        (同 um 结构，占位表)
+        (同 um 结构，占位表；agg_futures_cm_*)
 ```
 
 > 落库映射（对应 DDL 事实）：

@@ -47,10 +47,10 @@
 ### 2.2 目录结构到 schema/table 的映射规则（硬规则）
 
 1) 顶层目录 → 市场根（schema）+ 表前缀：
-- `data/futures/um/...` → `crypto.futures_um_*`（物理层与派生层都在 crypto 内，用表集合区分）
-- `data/futures/cm/...` → `crypto.futures_cm_*`（同上）
-- `data/spot/...`       → `crypto.spot_*`（同上）
-- `data/option/...`     → `crypto.option_*`（物理层；你要求 `EOHSummary` 强制物理）
+- `data/futures/um/...` → `crypto.raw_futures_um_*`（物理层）与 `crypto.agg_futures_um_*`（派生层）
+- `data/futures/cm/...` → `crypto.raw_futures_cm_*`（物理层）与 `crypto.agg_futures_cm_*`（派生层，占位）
+- `data/spot/...`       → `crypto.raw_spot_*`（物理层）与 `crypto.agg_spot_*`（派生层）
+- `data/option/...`     → `crypto.raw_option_*`（物理层；你要求 `EOHSummary` 强制物理）
 
 2) dataset → table 名（必要时带 interval）：
 - `klines/{symbol}/1m/` → `klines_1m`
@@ -83,27 +83,27 @@
    storage.import_errors
 
  crypto/                       # 原子/物理层：只收集基元数据
-   crypto.spot_trades
-   crypto.futures_um_trades
-   crypto.futures_um_book_ticker
-   crypto.futures_um_book_depth
-   crypto.futures_um_metrics
-   crypto.futures_cm_trades    (占位)
-   crypto.futures_cm_book_ticker
-   crypto.futures_cm_book_depth
-   crypto.futures_cm_metrics
-   crypto.option_bvol_index
-   crypto.option_eoh_summary   # 你要求强制物理
+   crypto.raw_spot_trades
+   crypto.raw_futures_um_trades
+   crypto.raw_futures_um_book_ticker
+   crypto.raw_futures_um_book_depth
+   crypto.raw_futures_um_metrics
+   crypto.raw_futures_cm_trades    (占位)
+   crypto.raw_futures_cm_book_ticker
+   crypto.raw_futures_cm_book_depth
+   crypto.raw_futures_cm_metrics
+   crypto.raw_option_bvol_index
+   crypto.raw_option_eoh_summary   # 你要求强制物理
 
  crypto/                       # 派生/汇总层：仍在 crypto 根内（表集合区分）
-   crypto.spot_agg_trades
-   crypto.spot_klines_1m
-   crypto.futures_um_agg_trades
-   crypto.futures_um_klines_1m
-   crypto.futures_um_mark_price_klines_1m
-   crypto.futures_um_index_price_klines_1m
-   crypto.futures_um_premium_index_klines_1m
-   crypto.futures_cm_* (同 um 结构，占位)
+   crypto.agg_spot_agg_trades
+   crypto.agg_spot_klines_1m
+   crypto.agg_futures_um_agg_trades
+   crypto.agg_futures_um_klines_1m
+   crypto.agg_futures_um_mark_price_klines_1m
+   crypto.agg_futures_um_index_price_klines_1m
+   crypto.agg_futures_um_premium_index_klines_1m
+   crypto.agg_futures_cm_* (同 um 结构，占位)
 
  equities/ fx/ commodities/ rates/ funds/ indices/   # 其他市场根（先占位）
 ```
@@ -160,7 +160,7 @@
 
 统一约定：每张表都包含 `file_id` 外键以实现“严格对齐目录与文件名”。
 
-### 5.1 Futures UM：`crypto.futures_um_klines_1m`（派生层）
+### 5.1 Futures UM：`crypto.agg_futures_um_klines_1m`（派生层）
 
 来源路径：
 - `data/futures/um/{daily|monthly}/klines/{SYMBOL}/1m/*.csv`
@@ -178,7 +178,7 @@ CSV 字段（样本有 header）：
 幂等键（唯一）：
 - 建议与 DDL 一致：`PRIMARY KEY(symbol, open_time_ts)`
 
-### 5.2 Spot：`crypto.spot_klines_1m`（派生层）
+### 5.2 Spot：`crypto.agg_spot_klines_1m`（派生层）
 
 来源路径：
 - `data/spot/{daily|monthly}/klines/{SYMBOL}/1m/*.csv`
@@ -198,7 +198,7 @@ CSV 特性（样本无 header）：
 
 > 注意：spot CSV 无 header，解析器必须以“路径→固定列序”为准，禁止猜测。
 
-### 5.3 Futures UM：`crypto.futures_um_metrics`（物理层）
+### 5.3 Futures UM：`crypto.raw_futures_um_metrics`（物理层）
 
 来源路径：
 - `data/futures/um/{daily|monthly}/metrics/{SYMBOL}/*.csv`
@@ -220,12 +220,12 @@ CSV 字段（样本有 header）：
 
 ### 5.4 Trades / AggTrades（futures_um / spot 对称）
 
-`crypto.futures_um_trades`（物理层，header）：
+`crypto.raw_futures_um_trades`（物理层，header）：
 - `id,price,qty,quote_qty,time,is_buyer_maker`
 - 唯一：`UNIQUE(symbol, id)`
 - `time` BIGINT（ms）+ `time_ts` TIMESTAMPTZ
 
-`crypto.spot_trades`（物理层，无 header）：
+`crypto.raw_spot_trades`（物理层，无 header）：
 - 列序按官方定义与样本一致；`time` 为 BIGINT（us）+ `time_ts`
 - 唯一：`UNIQUE(symbol, id)`
 
@@ -234,7 +234,7 @@ CSV 字段（样本有 header）：
 - spot：列序类似，但 transact_time 为 us
 - 唯一：`UNIQUE(symbol, agg_trade_id)`
 
-### 5.5 `crypto.futures_um_book_ticker`（物理层）
+### 5.5 `crypto.raw_futures_um_book_ticker`（物理层）
 
 来源路径：
 - `data/futures/um/{daily|monthly}/bookTicker/{SYMBOL}/*.csv`
@@ -255,7 +255,7 @@ CSV 字段（header）：
 风险控制：
 - 导入链路要做“乱序检测”（最少统计 `event_time` 是否单调、是否存在倒序段），必要时落盘前按 `(event_time, update_id)` 排序或记录质量告警。
 
-### 5.6 `crypto.futures_um_book_depth`（物理层，深度曲线）
+### 5.6 `crypto.raw_futures_um_book_depth`（物理层，深度曲线）
 
 来源路径：
 - `data/futures/um/{daily|monthly}/bookDepth/{SYMBOL}/*.csv`
@@ -273,14 +273,14 @@ CSV 字段（header）：
 幂等键：
 - `UNIQUE(symbol, timestamp, percentage)`
 
-### 5.7 Option：`crypto.option_bvol_index` / `crypto.option_eoh_summary`（物理层）
+### 5.7 Option：`crypto.raw_option_bvol_index` / `crypto.raw_option_eoh_summary`（物理层）
 
-`crypto.option_bvol_index`（header）：
+`crypto.raw_option_bvol_index`（header）：
 - `calc_time,symbol,base_asset,quote_asset,index_value`
 - 唯一：`UNIQUE(symbol, calc_time)`
 - `calc_time` BIGINT（ms）+ `calc_time_ts`
 
-`crypto.option_eoh_summary`（header，语义为 date+hour 的小时结束汇总；你要求强制物理）：
+`crypto.raw_option_eoh_summary`（header，语义为 date+hour 的小时结束汇总；你要求强制物理）：
 - `date,hour,symbol,underlying,type,strike,...,openinterest_*`
 - 建议时间列：`hour_ts = date + hour`
 - 幂等键建议：`PRIMARY KEY(symbol, hour_ts)`（与 DDL 一致；也可额外建 `UNIQUE(underlying, hour_ts, symbol)` 方便按标的裁剪）
@@ -327,8 +327,8 @@ CSV 字段（header）：
 当你开始做跨 market/product 统一分析时，建议新增：
 
 1) 统一视图层（不会破坏你要求的物理层级）
-- `v.trades` = `UNION ALL crypto.futures_um_trades + crypto.futures_cm_trades + crypto.spot_trades`（列对齐）
-- `v.klines_1m` = `UNION ALL crypto.futures_*_klines_1m + crypto.spot_klines_1m`
+- `v.trades` = `UNION ALL crypto.raw_futures_um_trades + crypto.raw_futures_cm_trades + crypto.raw_spot_trades`（列对齐）
+- `v.klines_1m` = `UNION ALL crypto.agg_futures_*_klines_1m + crypto.agg_spot_klines_1m`
 
 2) 统一 instrument 映射（可选）
 - `ref.instruments`：把 `BTCUSDT` 与期权合约符号统一建模，便于 join 与衍生计算。

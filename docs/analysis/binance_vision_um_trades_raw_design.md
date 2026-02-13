@@ -89,14 +89,24 @@ CREATE TABLE IF NOT EXISTS crypto.raw_futures_um_trades (
     -- 因此建议把 time 一并纳入主键/唯一键。
     PRIMARY KEY (exchange, symbol, time, id)
 );
+
+-- 关键点：禁用 TimescaleDB 默认时间索引（*_time_idx）
+-- 该表主键已覆盖核心查询路径；额外的 `time DESC` 索引会显著放大写入与存储成本。
+SELECT create_hypertable(
+  'crypto.raw_futures_um_trades',
+  'time',
+  chunk_time_interval => 86400000,        -- 1 day（单位=ms）
+  create_default_indexes => FALSE,
+  if_not_exists => TRUE
+);
+DROP INDEX IF EXISTS crypto.raw_futures_um_trades_time_idx;
 ```
 
-建议索引：
+索引策略（默认只保留 1 个主键索引）：
 
-```sql
-CREATE INDEX IF NOT EXISTS idx_raw_um_trades_exchange_symbol_time
-ON crypto.raw_futures_um_trades (exchange, symbol, time DESC);
-```
+- `PRIMARY KEY (exchange, symbol, time, id)`：满足“按交易所+交易对按时间回放/抽样”的主路径；
+- 不额外创建 `time DESC` 索引：避免冗余索引导致的写入放大与索引体积膨胀；
+- 若未来有“跨全市场不带 symbol 的按时间取最新”需求，再按需加：`BRIN(time)` 或专用 `btree(time DESC)`（不要默认就建）。
 
 ---
 

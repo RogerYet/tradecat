@@ -86,7 +86,15 @@ $$;
 -- 使用整数时间列（epoch ms）作为 hypertable 时间轴：
 -- - chunk_time_interval 单位与 time 列一致（ms）
 -- - 86400000ms = 1 day
-SELECT create_hypertable('crypto.raw_futures_um_trades', 'time', chunk_time_interval => 86400000, if_not_exists => TRUE);
+SELECT create_hypertable(
+    'crypto.raw_futures_um_trades',
+    'time',
+    chunk_time_interval => 86400000,
+    create_default_indexes => FALSE,
+    if_not_exists => TRUE
+);
+-- TimescaleDB 默认会创建 `time DESC` 索引（*_time_idx）。该表主键已覆盖核心查询路径，为降低写入放大/索引体积，这里禁用默认索引并兜底删除。
+DROP INDEX IF EXISTS crypto.raw_futures_um_trades_time_idx;
 SELECT set_integer_now_func('crypto.raw_futures_um_trades', 'crypto.unix_now_ms', replace_if_exists => TRUE);
 
 ALTER TABLE crypto.raw_futures_um_trades
@@ -234,7 +242,14 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
 -- CM 表也按与 UM 相同的策略创建 hypertable + 压缩（当前无数据，先占位不影响）
-SELECT create_hypertable('crypto.raw_futures_cm_trades', 'time', chunk_time_interval => 86400000, if_not_exists => TRUE);
+SELECT create_hypertable(
+    'crypto.raw_futures_cm_trades',
+    'time',
+    chunk_time_interval => 86400000,
+    create_default_indexes => FALSE,
+    if_not_exists => TRUE
+);
+DROP INDEX IF EXISTS crypto.raw_futures_cm_trades_time_idx;
 SELECT set_integer_now_func('crypto.raw_futures_cm_trades', 'crypto.unix_now_ms', replace_if_exists => TRUE);
 ALTER TABLE crypto.raw_futures_cm_trades
     SET (timescaledb.compress = TRUE,

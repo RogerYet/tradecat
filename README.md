@@ -175,12 +175,13 @@ cp config/.env.example config/.env && chmod 600 config/.env
 # 端口选择：保持 5434（新库）或改为 5433（旧库），见下方端口说明
 vim config/.env
 
-# 3) 启动核心服务（ai + data + signal + telegram + trading）
+# 3) 启动核心服务（ai + signal + telegram + trading）
 ./scripts/start.sh start
 ./scripts/start.sh status
 ```
 
-> 说明：顶层 `./scripts/start.sh` 管理 `ai-service`、`data-service`、`signal-service`、`telegram-service`、`trading-service`（ai-service 为子模块，仅做就绪检查，无独立进程）。  
+> 说明：顶层 `./scripts/start.sh` 管理 `ai-service`、`signal-service`、`telegram-service`、`trading-service`（ai-service 为子模块，仅做就绪检查，无独立进程）。  
+> 历史采集服务 data-service 已归档：`artifacts/services-archived/ingestion/data-service/`（不再默认启用）。  
 > 可选服务需手动启动：`cd services/consumption/api-service && ./scripts/start.sh start`（REST API，默认端口 8088）。
 
 ### ⚙️ 配置（必须）
@@ -219,7 +220,7 @@ vim config/.env
 
 ```bash
 # 安装依赖
-services/ingestion/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
+artifacts/services-archived/ingestion/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
 
 # 默认下载 Main4 数据集（BTC/ETH/BNB/SOL，415MB）
 python scripts/download_hf_data.py
@@ -317,7 +318,7 @@ cd .. && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
 ./scripts/init.sh
 
 # 或单独初始化某个服务
-./scripts/init.sh data-service
+./scripts/init.sh binance-vision-service
 ```
 
 #### 4. 配置环境变量
@@ -852,17 +853,16 @@ tradecat/
 │
 ├── 📂 services/                    # 服务分层（采集/计算/消费）
 │   │
-│   ├── 📂 ingestion/               # 采集层：写 TimescaleDB
-│   │   └── 📂 data-service/        # 加密货币数据采集服务
+│   ├── 📂 ingestion/                   # 采集层：写 TimescaleDB
+│   │   └── 📂 binance-vision-service/  # Binance Vision Raw 对齐采集服务
 │   │       ├── 📂 src/
-│   │       │   ├── 📂 collectors/  # 采集器
-│   │       │   ├── 📂 adapters/    # 适配器
+│   │       │   ├── 📂 collectors/      # 采集器卡片（严格对齐 Binance Vision）
+│   │       │   ├── 📂 writers/         # 写入器（CSV/DB）
 │   │       │   └── config.py
 │   │       ├── 📂 scripts/
 │   │       ├── Makefile
 │   │       ├── pyproject.toml
-│   │       ├── requirements.txt
-│   │       └── requirements.lock.txt
+│   │       └── requirements.txt
 │   │
 │   ├── 📂 compute/                 # 计算层：读 PG / 写 SQLite
 │   │   ├── 📂 trading-service/     # 指标计算服务（写入 SQLite）
@@ -887,6 +887,9 @@ tradecat/
 │       └── utils/                  # 工具函数
 │
 ├── 📂 artifacts/                   # 构建/测试产物
+│   ├── 📂 services-archived/        # 历史服务归档区（不进入默认启动/校验链路）
+│   │   └── 📂 ingestion/
+│   │       └── 📂 data-service/     # 旧版采集服务（已归档）
 │   ├── 📂 coverage/                # 覆盖率数据
 │   │   └── .coverage
 │   ├── 📂 dist/                    # 构建输出
@@ -955,8 +958,8 @@ tradecat/
 <summary><strong>点击展开👉 单服务管理</strong></summary>
 
 ```bash
-# data-service（支持守护模式）
-cd services/ingestion/data-service
+# data-service（已归档，支持守护模式）
+cd artifacts/services-archived/ingestion/data-service
 ./scripts/start.sh start    # 启动（含守护）
 ./scripts/start.sh stop     # 停止
 ./scripts/start.sh status   # 状态
@@ -984,7 +987,7 @@ cd services/consumption/api-service
 ./scripts/init.sh
 
 # 初始化单个服务
-./scripts/init.sh data-service
+./scripts/init.sh binance-vision-service
 ```
 
 </details>
@@ -1003,9 +1006,9 @@ cd services/consumption/api-service
 
 ```bash
 # data-service 日志
-tail -f services/ingestion/data-service/logs/backfill.log
-tail -f services/ingestion/data-service/logs/metrics.log
-tail -f services/ingestion/data-service/logs/ws.log
+tail -f artifacts/services-archived/ingestion/data-service/logs/backfill.log
+tail -f artifacts/services-archived/ingestion/data-service/logs/metrics.log
+tail -f artifacts/services-archived/ingestion/data-service/logs/ws.log
 
 # trading-service 日志
 tail -f services/compute/trading-service/logs/service.log

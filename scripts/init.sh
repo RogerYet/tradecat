@@ -2,7 +2,7 @@
 # tradecat Pro 初始化脚本
 # 用法: ./scripts/init.sh [service-name]
 # 示例: ./scripts/init.sh              # 初始化全部核心服务
-#       ./scripts/init.sh data-service  # 初始化单个服务
+#       ./scripts/init.sh binance-vision-service  # 初始化单个服务
 #       ./scripts/init.sh --all         # 初始化全部（含可选服务）
 
 set -e
@@ -11,7 +11,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # 核心服务（services/ 目录，按分层组织）
-CORE_SERVICES=(data-service trading-service telegram-service ai-service signal-service)
+# 注意：历史采集服务 data-service 已归档到 artifacts/services-archived/（不再默认启用）
+# 采集侧 binance-vision-service 目前以 CLI 运行（不在默认启动链路），需要时可手动执行：./scripts/init.sh binance-vision-service
+CORE_SERVICES=(trading-service telegram-service ai-service signal-service)
 
 # 可选服务（默认不在核心启动链）
 OPTIONAL_SERVICES=(api-service)

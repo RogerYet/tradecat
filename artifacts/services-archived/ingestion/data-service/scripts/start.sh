@@ -7,7 +7,7 @@ set -uo pipefail
 # ==================== 配置区 ====================
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVICE_DIR="$(dirname "$SCRIPT_DIR")"
-PROJECT_ROOT="$(cd "$SERVICE_DIR/../../.." && pwd)"
+PROJECT_ROOT="$(cd "$SERVICE_DIR/../../../.." && pwd)"
 RUN_DIR="$SERVICE_DIR/pids"
 LOG_DIR="$SERVICE_DIR/logs"
 DAEMON_PID="$RUN_DIR/daemon.pid"

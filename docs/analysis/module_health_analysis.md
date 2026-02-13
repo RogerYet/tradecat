@@ -27,7 +27,7 @@
 #### 问题 #1: data-service 与 datacat-service 功能重叠
 
 **位置**:
-- `services/ingestion/data-service/src/collectors/`
+- `artifacts/services-archived/ingestion/data-service/src/collectors/`（已归档）
 - （历史参考）`services-preview/datacat-service/src/collectors/`（本仓库目录已移除）
 
 **现状**:

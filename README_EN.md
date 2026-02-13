@@ -190,12 +190,13 @@ cp config/.env.example config/.env && chmod 600 config/.env
 # Change DATABASE_URL port to 5433 to match repo scripts (scripts default 5433, template defaults 5434)
 vim config/.env
 
-# 3) Start core services (ai + data + signal + telegram + trading)
+# 3) Start core services (ai + signal + telegram + trading)
 ./scripts/start.sh start
 ./scripts/start.sh status
 ```
 
-> Note: top-level `./scripts/start.sh` manages `ai-service`, `data-service`, `signal-service`, `telegram-service`, `trading-service` (ai-service is a sub-module; readiness check only, no standalone process).  
+> Note: top-level `./scripts/start.sh` manages `ai-service`, `signal-service`, `telegram-service`, `trading-service` (ai-service is a sub-module; readiness check only, no standalone process).  
+> Archived ingestion service: `artifacts/services-archived/ingestion/data-service/` (kept for reference; not enabled by default).  
 > Optional service manual start: `cd services/consumption/api-service && ./scripts/start.sh start` (REST API, default port 8088).
 
 ### ⚙️ Configuration (required)
@@ -228,7 +229,7 @@ Download pre-built datasets from HuggingFace to skip lengthy historical backfill
 
 ```bash
 # Install dependencies
-services/ingestion/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
+artifacts/services-archived/ingestion/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
 
 # Download Main4 dataset by default (BTC/ETH/BNB/SOL, 415MB)
 python scripts/download_hf_data.py
@@ -326,7 +327,7 @@ cd .. && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
 ./scripts/init.sh
 
 # Or initialize single service
-./scripts/init.sh data-service
+./scripts/init.sh binance-vision-service
 ```
 
 #### 4. Configure Environment Variables
@@ -861,7 +862,7 @@ tradecat/
 ├── 📂 services/                    # Layered services (Ingestion/Compute/Consumption)
 │   │
 │   ├── 📂 ingestion/               # Ingestion layer: write TimescaleDB
-│   │   └── 📂 data-service/        # Crypto data collection service
+│   │   └── 📂 binance-vision-service/  # Binance Vision raw-aligned ingestion
 │   │
 │   ├── 📂 compute/                 # Compute layer: read PG / write SQLite
 │   │   ├── 📂 trading-service/     # Indicator calculation (writes SQLite)
@@ -886,6 +887,9 @@ tradecat/
 │       └── utils/                  # Utility functions
 │
 ├── 📂 artifacts/                   # Build/test artifacts
+│   ├── 📂 services-archived/        # Archived services (excluded from default start/verify)
+│   │   └── 📂 ingestion/
+│   │       └── 📂 data-service/     # Legacy ingestion service (archived)
 │   ├── 📂 coverage/                # Coverage data
 │   │   └── .coverage
 │   ├── 📂 dist/                    # Build outputs
@@ -955,8 +959,8 @@ tradecat/
 <summary><strong>Expand👉 Single Service Management</strong></summary>
 
 ```bash
-# data-service (supports daemon mode)
-cd services/ingestion/data-service
+# data-service (archived; supports daemon mode)
+cd artifacts/services-archived/ingestion/data-service
 ./scripts/start.sh start    # Start (with daemon)
 ./scripts/start.sh stop     # Stop
 ./scripts/start.sh status   # Status
@@ -984,7 +988,7 @@ cd services/consumption/api-service
 ./scripts/init.sh
 
 # Initialize single service
-./scripts/init.sh data-service
+./scripts/init.sh binance-vision-service
 ```
 
 </details>
@@ -1003,9 +1007,9 @@ cd services/consumption/api-service
 
 ```bash
 # data-service logs
-tail -f services/ingestion/data-service/logs/backfill.log
-tail -f services/ingestion/data-service/logs/metrics.log
-tail -f services/ingestion/data-service/logs/ws.log
+tail -f artifacts/services-archived/ingestion/data-service/logs/backfill.log
+tail -f artifacts/services-archived/ingestion/data-service/logs/metrics.log
+tail -f artifacts/services-archived/ingestion/data-service/logs/ws.log
 
 # trading-service logs
 tail -f services/compute/trading-service/logs/service.log

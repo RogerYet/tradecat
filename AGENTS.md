@@ -54,18 +54,18 @@ cd /path/to/tradecat
 cp config/.env.example config/.env && chmod 600 config/.env
 vim config/.env
 
-# 3) 启动核心服务（ai + data + signal + telegram + trading）
+# 3) 启动核心服务（ai + signal + telegram + trading）
 ./scripts/start.sh start
 ./scripts/start.sh status
 ```
 
-> 顶层 `./scripts/start.sh` 管理 ai-service / data-service / signal-service / telegram-service / trading-service（ai-service 仅做就绪检查，无独立进程）。
+> 顶层 `./scripts/start.sh` 管理 ai-service / signal-service / telegram-service / trading-service（ai-service 仅做就绪检查，无独立进程）。
 
 ### 2.2 按服务手动启动（调试/可选）
 
 ```bash
-# data-service（采集）
-cd services/ingestion/data-service && ./scripts/start.sh start
+# binance-vision-service（采集，CLI）
+cd services/ingestion/binance-vision-service && python3 -m src --version
 
 # trading-service（指标计算）
 cd services/compute/trading-service && ./scripts/start.sh start
@@ -193,24 +193,26 @@ sqlite3 libs/database/services/telegram-service/market_data.db
 
 - **微服务独立**：每个服务有独立的 `.venv`、`requirements.txt`、`pyproject.toml`、`Makefile`
 - **配置统一**：所有配置集中在 `config/.env`，各服务共用
-- **数据流向**：`data-service → TimescaleDB → trading-service → SQLite → telegram/api → (ai/signal)`
+- **数据流向**：`ingestion → TimescaleDB → trading-service → SQLite → telegram/api → (ai/signal)`
 
 ### 4.2 服务清单（6 个）
 
 | 服务 | 分层 | 位置 | 职责 | 入口 |
 |:---|:---|:---|:---|:---|
-| data-service | ingestion | `services/ingestion/data-service/` | 加密货币数据采集（写入 TimescaleDB） | `src/__main__.py` |
+| binance-vision-service | ingestion | `services/ingestion/binance-vision-service/` | Binance Vision Raw 对齐采集（实时 + ZIP 回填） | `src/__main__.py` |
 | trading-service | compute | `services/compute/trading-service/` | 指标计算（写入 SQLite） | `src/__main__.py` |
 | signal-service | compute | `services/compute/signal-service/` | 信号检测（规则引擎，读库） | `src/__main__.py` |
 | ai-service | compute | `services/compute/ai-service/` | AI 分析（telegram 子模块） | `src/__main__.py` |
 | telegram-service | consumption | `services/consumption/telegram-service/` | Bot 交互、卡片渲染、订阅管理 | `src/main.py` |
 | api-service | consumption | `services/consumption/api-service/` | REST API（只读查询） | `src/__main__.py` |
 
+> 历史服务归档：`artifacts/services-archived/ingestion/data-service/`（旧版采集服务，仅保留参考，不进入默认启动链路）。
+
 ### 4.3 模块边界
 
 | 服务 | 职责 | 禁止 |
 |:---|:---|:---|
-| data-service | 加密货币数据采集、写入 TimescaleDB | 禁止计算指标与写入 SQLite |
+| binance-vision-service | 加密货币数据采集、写入 TimescaleDB（Raw 对齐） | 禁止计算指标与写入 SQLite |
 | trading-service | 指标计算、写入 SQLite | 禁止直接推送消息/依赖 Telegram |
 | signal-service | 信号检测、规则引擎 | 禁止 Telegram 依赖；默认只读业务数据（冷却/历史为例外的持久化） |
 | telegram-service | Bot 交互、卡片渲染、订阅管理 | 禁止包含信号检测核心逻辑（规则引擎在 signal-service） |
@@ -326,7 +328,7 @@ tradecat/
 │
 ├── services/                       # 服务分层（采集/计算/消费）
 │   ├── ingestion/                  # 采集层：写 TimescaleDB
-│   │   └── data-service/           # 加密货币数据采集
+│   │   └── binance-vision-service/ # Binance Vision Raw 对齐采集
 │   ├── compute/                    # 计算层：读 PG / 写 SQLite
 │   │   ├── trading-service/        # 指标计算（写入 SQLite）
 │   │   ├── signal-service/         # 信号检测（规则引擎）
@@ -362,6 +364,9 @@ tradecat/
 │   └── SECURITY.md                 # 安全政策
 │
 ├── artifacts/                      # 构建/测试产物
+│   ├── services-archived/          # 历史服务归档区（不进入默认启动/校验链路）
+│   │   └── ingestion/
+│   │       └── data-service/       # 旧版采集服务（已归档）
 │   ├── analysis/                   # 分析产物
 │   │   └── signal_correlation/     # 信号相关性分析输出
 │   ├── coverage/                   # 覆盖率数据
@@ -745,4 +750,5 @@ sqlite3 libs/database/services/telegram-service/market_data.db
 - 2026-02-10: 新增 `docs/analysis/layer_contract_one_pager.md`，定义采集/处理/消费三层的输入输出、幂等键、时间语义、重试策略与观测指标。
 - 2026-02-10: 新增 `docs/analysis/repo_structure_design.md`，给出三层单向数据流的理想目录结构与现实渐进迁移方案。
 - 2026-02-10: 新增 `docs/architecture/CONSTITUTION.md`，确立长期治理的系统宪法（单向依赖/单一真相源/幂等与时间语义/可观测/变更可回滚）与强制约束清单。
+- 2026-02-14: 归档 `services/ingestion/data-service` → `artifacts/services-archived/ingestion/data-service`，避免污染现行采集链路。
 - 2026-02-12: 新增综合市场数据库 DDL（`core/storage/crypto`），并把 Binance Vision 的“基元物理层 vs 可派生层”按脚本/表集合分层（均在 `crypto` 根内；表名使用 `raw_*`/`agg_*` 前缀；`raw_option_eoh_summary` 按约束保留在物理层）。

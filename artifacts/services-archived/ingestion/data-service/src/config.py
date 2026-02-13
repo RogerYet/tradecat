@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Optional
 
 # 服务根目录
-SERVICE_ROOT = Path(__file__).resolve().parents[1]  # services/ingestion/data-service
-PROJECT_ROOT = SERVICE_ROOT.parents[2]              # tradecat/
+SERVICE_ROOT = Path(__file__).resolve().parents[1]  # artifacts/services-archived/ingestion/data-service
+PROJECT_ROOT = SERVICE_ROOT.parents[3]              # tradecat/
 
 # 加载 config/.env
 _env_file = PROJECT_ROOT / "config" / ".env"

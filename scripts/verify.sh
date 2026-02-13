@@ -59,7 +59,7 @@ else
     fail "ai-service 语法检查失败"
 fi
 # 3.3 其他服务（粗粒度）
-for service_dir in services/ingestion/data-service services/compute/trading-service services/compute/signal-service; do
+for service_dir in services/ingestion/binance-vision-service services/compute/trading-service services/compute/signal-service; do
     if [ -d "$service_dir/src" ]; then
         if python3 -m compileall -q "$service_dir/src" 2>/dev/null; then
             success "$service_dir 源码语法正确"

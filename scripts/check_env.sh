@@ -23,6 +23,26 @@ info() { echo -e "${BLUE}→${NC} $1"; }
 ERRORS=0
 WARNINGS=0
 
+# ==================== 服务目录发现（兼容分层） ====================
+find_service_dir() {
+    local svc="$1"
+    local candidates=(
+        "$ROOT/services/$svc"                  # 兼容旧布局
+        "$ROOT/services/ingestion/$svc"        # 新布局：采集层
+        "$ROOT/services/compute/$svc"          # 新布局：计算层
+        "$ROOT/services/consumption/$svc"      # 新布局：消费层
+        "$ROOT/services-preview/$svc"          # 历史遗留（如仍存在）
+    )
+    local cand
+    for cand in "${candidates[@]}"; do
+        if [ -d "$cand" ]; then
+            echo "$cand"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # ==================== 1. Python 环境 ====================
 check_python() {
     echo ""
@@ -100,19 +120,41 @@ check_venvs() {
     echo ""
     echo "=== 虚拟环境 ==="
     
-    local services=(data-service trading-service telegram-service ai-service signal-service)
-    
-    for svc in "${services[@]}"; do
-        local svc_dir="$ROOT/services/$svc"
+    local core_services=(trading-service telegram-service ai-service signal-service)
+    local optional_services=(binance-vision-service api-service)
+
+    check_one() {
+        local svc="$1"
+        local mode="$2"  # core|optional
+        local svc_dir
+
+        svc_dir="$(find_service_dir "$svc")" || {
+            if [ "$mode" = "core" ]; then
+                fail "$svc: 服务目录不存在"
+            else
+                info "$svc: 服务目录不存在（可选）"
+            fi
+            return 0
+        }
+
         if [ -d "$svc_dir/.venv" ] && [ -f "$svc_dir/.venv/bin/python" ]; then
             success "$svc: .venv 存在"
-        else
-            if [ -d "$svc_dir" ]; then
-                fail "$svc: .venv 缺失 (运行 ./scripts/init.sh $svc)"
-            else
-                info "$svc: 服务目录不存在"
-            fi
+            return 0
         fi
+
+        if [ "$mode" = "core" ]; then
+            fail "$svc: .venv 缺失 (运行 ./scripts/init.sh $svc)"
+        else
+            warn "$svc: .venv 缺失（可选，运行 ./scripts/init.sh $svc）"
+        fi
+    }
+
+    local svc
+    for svc in "${core_services[@]}"; do
+        check_one "$svc" "core"
+    done
+    for svc in "${optional_services[@]}"; do
+        check_one "$svc" "optional"
     done
 }
 
@@ -301,10 +343,15 @@ check_data_dirs() {
     local dirs=(
         "$ROOT/libs/database/services/telegram-service"
         "$ROOT/services/consumption/telegram-service/data/cache"
-        "$ROOT/services/ingestion/data-service/logs"
         "$ROOT/services/compute/trading-service/logs"
+        "$ROOT/services/compute/signal-service/logs"
+        "$ROOT/services/compute/ai-service/logs"
         "$ROOT/services/consumption/telegram-service/logs"
     )
+
+    # 可选：采集侧（不进入核心启动链路，但允许单独运行）
+    local bv_dir
+    bv_dir="$(find_service_dir "binance-vision-service")" && dirs+=("$bv_dir/logs")
     
     for dir in "${dirs[@]}"; do
         if [ -d "$dir" ]; then
@@ -313,6 +360,11 @@ check_data_dirs() {
             warn "$dir: 不存在"
         fi
     done
+
+    # 归档提示（不做强校验，避免“污染”主链路）
+    if [ -d "$ROOT/artifacts/services-archived/ingestion/data-service" ]; then
+        info "data-service 已归档：artifacts/services-archived/ingestion/data-service（不参与默认检查）"
+    fi
     
     # SQLite 数据库
     local sqlite_db="$ROOT/libs/database/services/telegram-service/market_data.db"

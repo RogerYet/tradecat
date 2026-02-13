@@ -8,7 +8,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 # 核心服务（与 init.sh 保持一致）
 # ai-service 提供就绪检查（非独立进程）
-SERVICES=(ai-service data-service signal-service telegram-service trading-service)
+# 注意：历史采集服务 data-service 已归档到 artifacts/services-archived/（不再默认启用）
+SERVICES=(ai-service signal-service telegram-service trading-service)
 
 # ==================== 服务目录发现（兼容分层） ====================
 find_service_dir() {
@@ -78,7 +79,7 @@ check_database() {
 start_all() {
     echo "=== 启动全部服务 ==="
     
-    # 数据库就绪检查（仅对 data-service 和 trading-service）
+    # 数据库就绪检查（只要服务链路需要 PG 就检查）
     if ! check_database; then
         echo "服务启动已取消"
         return 1

@@ -1,0 +1,40 @@
+数据流水线（纯文本示意）
+
+[外部数据源]
+  Binance WS（实时K线） + Binance REST（历史回填/期货指标）
+        |
+        v
+[采集层] data-service
+  - ws采集 / backfill / metrics
+        |
+        v
+[落盘层 - 单一真相源]
+  TimescaleDB/PostgreSQL
+  - candles_1m
+  - futures_metrics_5m
+        |
+        v
+[处理/计算层] trading-service
+  - 读PG -> 计算指标/特征/统计 -> 写结果
+        |
+        v
+[消费侧缓存（可重建）]
+  SQLite: market_data.db（给 Telegram/API 快速读）
+        |
+        +------------------------------+
+        |                              |
+        v                              v
+[信号层] signal-service               [查询/展示层] telegram-service / api-service
+  - 读PG+SQLite                        - 排行榜/面板/查询
+  - 规则/去重/冷却                      - 订阅/推送
+  - 输出 SignalEvent                    ^
+        |                               |
+        v                               |
+[（可选）交易执行流水线]
+  SignalEvent
+    -> 策略/风控（生成 OrderIntent）
+    -> 构建下单请求体（ccxt / Binance API）
+    -> 执行下单/撤单/调仓
+    -> 更新订单/持仓状态（建议落PG orders_*）
+    -> 状态变更回流到 Telegram 展示/告警
+

@@ -64,29 +64,40 @@ END$$;
 -- futures/um/daily/trades/{SYMBOL}/{SYMBOL}-trades-YYYY-MM-DD.csv
 -- header：id,price,qty,quote_qty,time(ms),is_buyer_maker
 CREATE TABLE IF NOT EXISTS crypto.raw_futures_um_trades (
-    file_id         BIGINT NOT NULL REFERENCES storage.files(file_id),
+    exchange        TEXT   NOT NULL,
     symbol          TEXT   NOT NULL,
     id              BIGINT NOT NULL,
     price           NUMERIC(38, 12) NOT NULL,
     qty             NUMERIC(38, 12) NOT NULL,
     quote_qty       NUMERIC(38, 12) NOT NULL,
     time            BIGINT NOT NULL, -- epoch(ms)
-    time_ts         TIMESTAMPTZ NOT NULL, -- 建议导入时计算：to_timestamp(time / 1000.0)
     is_buyer_maker  BOOLEAN NOT NULL,
-    ingested_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (symbol, time_ts, id)
+    PRIMARY KEY (exchange, symbol, time, id)
 );
 
-SELECT create_hypertable('crypto.raw_futures_um_trades', 'time_ts', chunk_time_interval => INTERVAL '1 day', if_not_exists => TRUE);
+-- integer hypertable 的 now()（用于压缩/保留等 policy job）
+CREATE OR REPLACE FUNCTION crypto.unix_now_ms() RETURNS BIGINT
+LANGUAGE SQL
+STABLE
+AS $$
+  SELECT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
+$$;
+
+-- 使用整数时间列（epoch ms）作为 hypertable 时间轴：
+-- - chunk_time_interval 单位与 time 列一致（ms）
+-- - 86400000ms = 1 day
+SELECT create_hypertable('crypto.raw_futures_um_trades', 'time', chunk_time_interval => 86400000, if_not_exists => TRUE);
+SELECT set_integer_now_func('crypto.raw_futures_um_trades', 'crypto.unix_now_ms', replace_if_exists => TRUE);
 
 ALTER TABLE crypto.raw_futures_um_trades
     SET (timescaledb.compress = TRUE,
-         timescaledb.compress_segmentby = 'symbol',
-         timescaledb.compress_orderby = 'time_ts,id');
+         timescaledb.compress_segmentby = 'exchange,symbol',
+         timescaledb.compress_orderby = 'time,id');
 
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto.raw_futures_um_trades', INTERVAL '3 days');
+    -- 30 days = 30 * 86400000(ms)
+    PERFORM add_compression_policy('crypto.raw_futures_um_trades', 2592000000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
@@ -196,8 +207,8 @@ CREATE TABLE IF NOT EXISTS crypto.raw_futures_cm_metrics (LIKE crypto.raw_future
 -- LIKE 不会复制外键约束，这里显式补齐 file_id -> storage.files(file_id)
 DO $$
 BEGIN
-    ALTER TABLE crypto.raw_futures_cm_trades
-        ADD CONSTRAINT raw_futures_cm_trades_file_id_fkey FOREIGN KEY (file_id) REFERENCES storage.files(file_id);
+    -- trades 表不包含 file_id（实时+回填统一事实表），因此无需 file_id 外键。
+    PERFORM 1;
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
@@ -223,14 +234,15 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
 -- CM 表也按与 UM 相同的策略创建 hypertable + 压缩（当前无数据，先占位不影响）
-SELECT create_hypertable('crypto.raw_futures_cm_trades', 'time_ts', chunk_time_interval => INTERVAL '1 day', if_not_exists => TRUE);
+SELECT create_hypertable('crypto.raw_futures_cm_trades', 'time', chunk_time_interval => 86400000, if_not_exists => TRUE);
+SELECT set_integer_now_func('crypto.raw_futures_cm_trades', 'crypto.unix_now_ms', replace_if_exists => TRUE);
 ALTER TABLE crypto.raw_futures_cm_trades
     SET (timescaledb.compress = TRUE,
-         timescaledb.compress_segmentby = 'symbol',
-         timescaledb.compress_orderby = 'time_ts,id');
+         timescaledb.compress_segmentby = 'exchange,symbol',
+         timescaledb.compress_orderby = 'time,id');
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto.raw_futures_cm_trades', INTERVAL '3 days');
+    PERFORM add_compression_policy('crypto.raw_futures_cm_trades', 2592000000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 

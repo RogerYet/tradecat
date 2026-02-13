@@ -7,7 +7,7 @@
 ```
 services/
 ├── ingestion/                       # 采集层：只做拉取/标准化/写入原始事实
-│   └── data-service/                # Binance 行情采集（WS 1m K线 + REST 指标 + ZIP 回填）
+│   └── binance-vision-service/      # Binance Vision Raw 对齐采集（ccxtpro + Vision ZIP 回填）
 ├── compute/                          # 处理层：只读采集层事实，计算指标/信号并落派生结果
 │   ├── trading-service/             # 指标计算（写入 SQLite 指标库供消费侧展示）
 │   ├── signal-service/              # 信号检测（只读指标库，写入自身冷却/历史）
@@ -17,6 +17,8 @@ services/
     └── api-service/                 # REST API（只读查询）
 ```
 
+> 历史服务归档：`artifacts/services-archived/ingestion/data-service/`（不再参与默认启动/校验链路）。
+
 ## 依赖边界（硬规则）
 
 - `ingestion/**` 禁止 import `compute/**`、`consumption/**`
@@ -24,4 +26,3 @@ services/
 - `consumption/**` 禁止写入 PostgreSQL 业务域（Raw/Derived），只允许写 **缓存/投递去重状态**
 
 > 相关设计依据：`docs/analysis/layer_contract_one_pager.md`、`docs/analysis/repo_structure_design.md`。
-

@@ -80,9 +80,11 @@ tradecat/
 
 | 层 | 现有服务（候选） | 角色 |
 |---|---|---|
-| 采集 | `services/ingestion/data-service/` | 拉取外部数据 → 标准化 → 写 PG raw_* |
+| 采集 | `services/ingestion/binance-vision-service/` | 拉取外部数据 → 标准化 → 写 PG raw_* |
 | 处理 | `services/compute/trading-service/`, `services/compute/signal-service/` | 读 raw_* → 计算指标/信号 → 写 derived_* |
 | 消费 | `services/consumption/telegram-service/`, `services/consumption/api-service/` | 读 derived_* → 展示/推送（允许写缓存） |
+
+> 注：历史采集服务 `services/ingestion/data-service/` 已归档到 `artifacts/services-archived/ingestion/data-service/`（仅保留参考，不进入默认启动链路）。
 
 > 注：`services/compute/ai-service/` 更像“消费侧分析”（读派生层做解释/摘要），除非它会反向生成可复用特征写回派生层。
 

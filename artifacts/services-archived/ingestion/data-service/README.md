@@ -1,5 +1,8 @@
 # Data Service
 
+> ⚠️ **已归档（2026-02-14）**：本服务从 `services/ingestion/data-service` 迁移至 `artifacts/services-archived/ingestion/data-service`，仅用于历史参考，避免污染当前采集链路。  
+> 新采集链路请优先使用：`services/ingestion/binance-vision-service`。
+
 Binance 期货市场数据采集服务，提供 1m K线和 5m 期货指标的实时采集与历史补齐。
 
 ## 功能
@@ -42,12 +45,7 @@ src/
 ### 安装
 
 ```bash
-# 方式一：使用初始化脚本
-cd /path/to/tradecat
-./scripts/init.sh data-service
-
-# 方式二：手动安装
-cd services/ingestion/data-service
+cd artifacts/services-archived/ingestion/data-service
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -63,13 +61,10 @@ vim config/.env
 ### 启动
 
 ```bash
-# 启动全部（推荐）
+# 进入已归档服务目录后启动（本服务自身的守护脚本）
+cd artifacts/services-archived/ingestion/data-service
 ./scripts/start.sh start
-
-# 查看状态
 ./scripts/start.sh status
-
-# 停止
 ./scripts/start.sh stop
 
 # 单独启动组件

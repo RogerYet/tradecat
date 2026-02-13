@@ -208,12 +208,14 @@ graph TD
 
 | 层 | 服务 | 位置 | 入口 | 职责 | 数据依赖 | 数据输出 |
 |:---|:---|:---|:---|:---|:---|:---|
-| ingestion | **data-service** | `services/ingestion/data-service` | `src/__main__.py` | 币安数据采集（WS+REST）、历史回填 | Binance API | TimescaleDB |
+| ingestion | **binance-vision-service** | `services/ingestion/binance-vision-service` | `src/__main__.py` | Binance Vision Raw 对齐采集（ccxtpro WS/REST + Vision ZIP 回填） | Binance API / Binance Vision | TimescaleDB |
 | compute | **trading-service** | `services/compute/trading-service` | `src/__main__.py` | 技术指标计算 | TimescaleDB | SQLite market_data.db |
 | compute | **signal-service** | `services/compute/signal-service` | `src/__main__.py` | 信号规则检测 | SQLite、TimescaleDB | SignalPublisher |
 | compute | **ai-service** | `services/compute/ai-service` | `src/__main__.py` | AI 分析（telegram 子模块） | TimescaleDB、SQLite | Telegram |
 | consumption | **telegram-service** | `services/consumption/telegram-service` | `src/__main__.py` | Bot交互、排行榜展示、信号推送UI | SQLite、SignalPublisher | Telegram |
 | consumption | **api-service** | `services/consumption/api-service` | `src/__main__.py` | REST API（CoinGlass V4 风格） | TimescaleDB、SQLite | HTTP |
+
+> 注：历史采集服务 `services/ingestion/data-service/` 已归档到 `artifacts/services-archived/ingestion/data-service/`（仅保留参考，不进入默认启动/校验链路）。
 
 > 说明：历史 `services-preview/*` 概念已从本仓库目录移除；如需预览服务，请在独立仓库/分支维护。
 

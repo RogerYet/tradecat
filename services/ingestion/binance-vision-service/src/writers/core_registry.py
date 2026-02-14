@@ -63,6 +63,29 @@ class CoreRegistry:
         self._venue_id_cache: dict[str, int] = {}
         self._instrument_id_cache: dict[tuple[int, str], int] = {}
 
+    def _qualify_venue_code(self, *, venue_code: str, product: str) -> str:
+        """把 product 纳入 venue_code 的键空间，避免不同市场/产品的同名 symbol 发生碰撞。
+
+        为什么要这样做（说人话）：
+        - core.symbol_map 的主键空间是 (venue_id, symbol, effective_from)，并且我们要加一条硬约束：
+          同一 (venue_id, symbol) 只能存在 1 条 active（effective_to IS NULL）。
+        - 如果 venue_code 只有 'binance'，那 spot / futures_um / futures_cm / option 都会共享 'BTCUSDT' 这种同名 symbol，
+          后续接入就必然撞车。
+        - 最小且不改 schema 的做法：把“产品维度”折叠进 venue_code（例如 binance_futures_cm / binance_spot）。
+
+        兼容性：
+        - 当前运行库里 futures_um 已使用 venue_code=binance 写入并落库；为避免现在就引发 venue_id 漂移，
+          futures_um 暂时保持不加后缀（后续若需要统一命名，可走一次性迁移）。
+        """
+
+        base = str(venue_code).strip().lower()
+        prod = str(product).strip().lower()
+        if not prod:
+            return base
+        if prod == "futures_um":
+            return base
+        return f"{base}_{prod}"
+
     def _lock_symbol_mapping(self, *, venue_code: str, symbol: str, cursor: psycopg.Cursor) -> None:
         """对 (venue_code, symbol) 的“映射创建”加事务级互斥锁，避免并发下重复造 instrument / 重复插 symbol_map。
 
@@ -183,6 +206,21 @@ class CoreRegistry:
                 raise RuntimeError(f"创建 instrument 失败: venue={venue_code} symbol={sym}")
             instrument_id = int(inst_row[0])
 
+            # 3) 创建/补齐 symbol_map
+            # 重要：如果这是这个 (venue_id,symbol) 的“第一条映射”，把 effective_from 固定为 epoch。
+            # 这样 readable view 若按 [effective_from,effective_to) 做 as-of 语义时，不会因“映射创建晚于历史回填”导致 symbol=NULL。
+            cur.execute(
+                """
+                SELECT 1
+                FROM core.symbol_map
+                WHERE venue_id = %s AND symbol = %s
+                LIMIT 1
+                """,
+                (int(venue_id), sym),
+            )
+            has_any_mapping = cur.fetchone() is not None
+            effective_from = None if has_any_mapping else "1970-01-01 00:00:00+00"
+
             cur.execute(
                 """
                 INSERT INTO core.symbol_map (venue_id, symbol, instrument_id, effective_from, effective_to, meta)
@@ -190,12 +228,12 @@ class CoreRegistry:
                   %s,
                   %s,
                   %s,
-                  NOW(),
+                  COALESCE(%s::timestamptz, NOW()),
                   NULL,
                   jsonb_build_object('source','auto','created_by','binance-vision-service')
                 )
                 """,
-                (int(venue_id), sym, int(instrument_id)),
+                (int(venue_id), sym, int(instrument_id), effective_from),
             )
         finally:
             if cursor is None:
@@ -213,10 +251,11 @@ class CoreRegistry:
         product: str,
         cursor: Optional[psycopg.Cursor] = None,
     ) -> tuple[int, int]:
-        vid = self.get_or_create_venue_id(venue_code, cursor=cursor)
+        qualified_venue_code = self._qualify_venue_code(venue_code=venue_code, product=product)
+        vid = self.get_or_create_venue_id(qualified_venue_code, cursor=cursor)
         iid = self.get_or_create_instrument_id(
             venue_id=vid,
-            venue_code=venue_code,
+            venue_code=qualified_venue_code,
             symbol=symbol,
             product=product,
             cursor=cursor,

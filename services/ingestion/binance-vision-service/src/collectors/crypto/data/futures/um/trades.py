@@ -67,6 +67,25 @@ class UmTrade:
         return ms_to_date_utc(self.time)
 
 
+@dataclass
+class _RealtimeStats:
+    ws_trades_enqueued: int = 0
+    ws_parse_errors: int = 0
+    ws_watch_errors: int = 0
+
+    rest_fetch_calls: int = 0
+    rest_trades_enqueued: int = 0
+
+    queue_full_events: int = 0
+    queue_max_size: int = 0
+    max_lag_ms: int = 0
+
+    gaps_inserted: int = 0
+
+    csv_rows_written: int = 0
+    db_rows_attempted: int = 0
+
+
 def _to_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -177,10 +196,12 @@ async def _watch_trades(
     ccxt_symbol: str,
     vision_symbol: str,
     out_queue: "asyncio.Queue[UmTrade]",
+    stats: _RealtimeStats,
 ) -> None:
     """单交易对 watchTrades 循环（WS 优先）。"""
 
     backoff = 1.0
+    last_full_log = 0.0
     while True:
         try:
             trades = await exchange.watch_trades(ccxt_symbol)
@@ -189,12 +210,21 @@ async def _watch_trades(
                 try:
                     t = parse_um_trade_from_ccxt(tr, fallback_symbol=vision_symbol)
                 except Exception as e:
+                    stats.ws_parse_errors += 1
                     logger.warning("[%s] 解析 trade 失败: %s", vision_symbol, e)
                     continue
+                if out_queue.full():
+                    stats.queue_full_events += 1
+                    now = time.time()
+                    if (now - last_full_log) > 5.0:
+                        last_full_log = now
+                        logger.warning("[%s] out_queue 已满（阻塞背压中）: maxsize=%d", vision_symbol, out_queue.maxsize)
                 await out_queue.put(t)
+                stats.ws_trades_enqueued += 1
         except asyncio.CancelledError:
             raise
         except Exception as e:
+            stats.ws_watch_errors += 1
             logger.warning("[%s] watchTrades 失败，%.1fs 后重试: %s", vision_symbol, backoff, e)
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 60.0)
@@ -254,6 +284,7 @@ async def collect_realtime(
     inflight_rest: Dict[str, float] = {}
     run_status = "success"
     run_error: Optional[str] = None
+    stats = _RealtimeStats()
 
     try:
         # 1) markets（用于 id->symbol 映射）
@@ -274,7 +305,7 @@ async def collect_realtime(
             ccxt_symbol = _map_vision_symbol_to_ccxt(exchange, vision_symbol)
             logger.info("UM trades WS订阅: %s -> %s", vision_symbol, ccxt_symbol)
             ccxt_symbol_map[vision_symbol] = ccxt_symbol
-            tasks.append(asyncio.create_task(_watch_trades(exchange, ccxt_symbol, vision_symbol, q)))
+            tasks.append(asyncio.create_task(_watch_trades(exchange, ccxt_symbol, vision_symbol, q, stats)))
 
         async def _rest_fill_symbol(vision_symbol: str, *, since_ms: int) -> None:
             if q is None:
@@ -304,6 +335,7 @@ async def collect_realtime(
                     logger.warning("[%s] REST fetch_trades 失败: %s", vision_symbol, e)
                     return
 
+                stats.rest_fetch_calls += 1
                 if not trades:
                     return
 
@@ -313,7 +345,10 @@ async def collect_realtime(
                         t = parse_um_trade_from_ccxt(tr, fallback_symbol=vision_symbol)
                     except Exception:
                         continue
+                    if q.full():
+                        stats.queue_full_events += 1
                     await q.put(t)
+                    stats.rest_trades_enqueued += 1
                     max_time = max(max_time, t.time)
 
                 if max_time <= next_since:
@@ -355,6 +390,7 @@ async def collect_realtime(
                             reason=f"realtime_stale>{gap_threshold_seconds}s; rest_fill; W={window_seconds}s overlap={rest_overlap_multiplier}x",
                             run_id=run_id,
                         )
+                        stats.gaps_inserted += 1
 
                     logger.info("[%s] 触发巡检补拉: stale=%ds since=%d", vision_symbol, (now_ms - last_ms) // 1000, start_ms)
                     await _rest_fill_symbol(vision_symbol, since_ms=max(now_ms - w_ms - overlap_ms, start_ms))
@@ -367,11 +403,13 @@ async def collect_realtime(
         while True:
             try:
                 t = await asyncio.wait_for(q.get(), timeout=flush_interval_seconds)
+                stats.queue_max_size = max(stats.queue_max_size, q.qsize() + 1)
                 rel_path = relpath_futures_um_trades_daily(t.symbol, t.file_date)
                 local_path = service_root / rel_path
 
                 last_seen_time_ms[t.symbol] = t.time
                 last_seen_id[t.symbol] = t.id
+                stats.max_lag_ms = max(stats.max_lag_ms, int(time.time() * 1000) - int(t.time))
 
                 if write_csv:
                     csv_buffer.setdefault(local_path, []).append(um_trade_to_csv_row(t))
@@ -393,6 +431,8 @@ async def collect_realtime(
 
                 # flush by size
                 if len(db_buffer) >= flush_max_rows or csv_rows_count >= flush_max_rows:
+                    stats.csv_rows_written += sum(len(rows) for rows in csv_buffer.values())
+                    stats.db_rows_attempted += len(db_buffer)
                     _flush(
                         csv_buffer,
                         db_buffer,
@@ -410,6 +450,8 @@ async def collect_realtime(
                 # flush by time
                 now = asyncio.get_event_loop().time()
                 if now - last_flush >= flush_interval_seconds:
+                    stats.csv_rows_written += sum(len(rows) for rows in csv_buffer.values())
+                    stats.db_rows_attempted += len(db_buffer)
                     _flush(
                         csv_buffer,
                         db_buffer,
@@ -467,6 +509,8 @@ async def collect_realtime(
                             )
                         )
 
+            stats.csv_rows_written += sum(len(rows) for rows in csv_buffer.values())
+            stats.db_rows_attempted += len(db_buffer)
             _flush(
                 csv_buffer,
                 db_buffer,
@@ -485,7 +529,31 @@ async def collect_realtime(
         finally:
             if meta_writer and run_id is not None:
                 try:
-                    meta_writer.finish_run(run_id, status=run_status, error_message=run_error)
+                    meta_writer.finish_run(
+                        run_id,
+                        status=run_status,
+                        error_message=run_error,
+                        meta={
+                            "symbols": [str(s).upper() for s in symbols],
+                            "symbols_count": len(symbols),
+                            "write_csv": bool(write_csv),
+                            "write_db": bool(write_db),
+                            "flush_max_rows": int(flush_max_rows),
+                            "flush_interval_seconds": float(flush_interval_seconds),
+                            "queue_maxsize": int(q.maxsize) if q is not None else None,
+                            "ws_trades_enqueued": int(stats.ws_trades_enqueued),
+                            "ws_parse_errors": int(stats.ws_parse_errors),
+                            "ws_watch_errors": int(stats.ws_watch_errors),
+                            "rest_fetch_calls": int(stats.rest_fetch_calls),
+                            "rest_trades_enqueued": int(stats.rest_trades_enqueued),
+                            "queue_full_events": int(stats.queue_full_events),
+                            "queue_max_size": int(stats.queue_max_size),
+                            "max_lag_ms": int(stats.max_lag_ms),
+                            "gaps_inserted": int(stats.gaps_inserted),
+                            "csv_rows_written": int(stats.csv_rows_written),
+                            "db_rows_attempted": int(stats.db_rows_attempted),
+                        },
+                    )
                 except Exception as e:  # noqa: BLE001
                     logger.warning("写入 ingest_runs 结束状态失败: %s", e)
             if conn is not None:

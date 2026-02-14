@@ -39,6 +39,7 @@
 
 - `libs/database/db/schema/008_multi_market_core_and_storage.sql`
 - `libs/database/db/schema/009_crypto_binance_vision_landing.sql`（会被本方案的“最终 DDL”替换其中的 trades 部分）
+- `libs/database/db/schema/013_core_symbol_map_hardening.sql`（symbol_map 必须写死的硬约束：active 唯一性/窗口自洽）
 - `libs/database/db/schema/012_crypto_ingest_governance.sql`
 
 ---
@@ -78,6 +79,12 @@ UM trades header：
   - 来源：`core.venue(venue_code='binance')`  
 - `instrument_id`：统一金融工具 ID（例：BTCUSDT 永续合约对应 1 个 instrument）  
   - 来源：`core.instrument` + `core.symbol_map(venue_id, symbol->instrument_id)`  
+
+补充（你朋友指出的系统性 P0，必须提前写死）：
+
+- **产品维度必须纳入键空间**：同一交易所的 spot / futures_um / futures_cm / option 会共享 `BTCUSDT` 这类同名 symbol。  
+  - 最小方案（不改 schema）：把 product 折叠进 `core.venue.venue_code`，例如 `binance_spot / binance_futures_cm / binance_option`。  
+  - 兼容性：你当前运行库的 `futures_um` 已用 `venue_code=binance` 落库；为避免立刻引发 venue_id 漂移，`futures_um` 可先保留不加后缀，后续统一命名走一次性迁移。  
 
 > 对人类可读的 `exchange/symbol`：不放进事实表主键；用 view/维表 join 恢复。  
 

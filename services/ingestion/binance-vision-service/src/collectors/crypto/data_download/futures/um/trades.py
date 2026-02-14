@@ -298,6 +298,40 @@ class IngestZipStats:
     file_max_id: Optional[int]
 
 
+def _get_um_trades_compress_after_ms(cur: psycopg.Cursor) -> Optional[int]:
+    """读取 crypto.raw_futures_um_trades 的 compress_after（ms）。
+
+    说明：
+    - UM trades 使用 integer hypertable（time=epoch ms）并启用压缩策略；
+    - 为避免代码里硬编码与 DDL 漂移，这里优先从 Timescale 的 policy job 读取真实值；
+    - 读取失败时返回 None（表示“无法判定”，调用方需决定是否降级）。
+    """
+
+    try:
+        cur.execute(
+            """
+            SELECT (j.config->>'compress_after')::BIGINT
+            FROM timescaledb_information.jobs j
+            WHERE j.proc_name = 'policy_compression'
+              AND (j.config->>'hypertable_id')::BIGINT = (
+                SELECT id
+                FROM _timescaledb_catalog.hypertable
+                WHERE schema_name = 'crypto'
+                  AND table_name = 'raw_futures_um_trades'
+              )
+            ORDER BY j.job_id DESC
+            LIMIT 1
+            """
+        )
+        row = cur.fetchone()
+        if row and row[0] is not None:
+            return int(row[0])
+    except Exception:
+        logger.debug("读取 UM trades compress_after 失败", exc_info=True)
+        return None
+    return None
+
+
 def _ingest_zip(
     conn: psycopg.Connection,
     *,
@@ -340,6 +374,45 @@ def _ingest_zip(
         )
         tmp_count, tmp_min_time, tmp_max_time, tmp_max_id = cur.fetchone() or (0, None, None, None)
 
+        # ==================== 压缩窗口门禁（P0） ====================
+        # 规则（强制）：
+        # - 回填默认允许 ON CONFLICT DO UPDATE（以官方为准）
+        # - 但当窗口已落入“压缩可能生效”的时间段后，禁止 UPDATE（否则可能触发 decompress/recompress，代价很高）
+        compress_after_ms = _get_um_trades_compress_after_ms(cur)
+        allow_update = True
+        if compress_after_ms is not None:
+            now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            if int(end_ms) < now_ms - int(compress_after_ms):
+                allow_update = False
+                logger.warning(
+                    "[%s] 回填窗口已越过压缩线，降级为 DO NOTHING: end_ms=%d compress_after_ms=%d zip=%s",
+                    symbol,
+                    int(end_ms),
+                    int(compress_after_ms),
+                    zip_path.name,
+                )
+
+        conflict_sql = (
+            """
+            DO UPDATE SET
+              price = EXCLUDED.price,
+              qty = EXCLUDED.qty,
+              quote_qty = EXCLUDED.quote_qty,
+              is_buyer_maker = EXCLUDED.is_buyer_maker
+            WHERE (crypto.raw_futures_um_trades.price,
+                   crypto.raw_futures_um_trades.qty,
+                   crypto.raw_futures_um_trades.quote_qty,
+                   crypto.raw_futures_um_trades.is_buyer_maker)
+              IS DISTINCT FROM
+                  (EXCLUDED.price,
+                   EXCLUDED.qty,
+                   EXCLUDED.quote_qty,
+                   EXCLUDED.is_buyer_maker)
+            """
+            if allow_update
+            else "DO NOTHING"
+        )
+
         cur.execute(
             """
             INSERT INTO crypto.raw_futures_um_trades (
@@ -356,12 +429,9 @@ def _ingest_zip(
               is_buyer_maker
             FROM tmp_um_trades
             WHERE time >= %(start_ms)s AND time < %(end_ms)s
-            ON CONFLICT (venue_id, instrument_id, time, id) DO UPDATE SET
-              price = EXCLUDED.price,
-              qty = EXCLUDED.qty,
-              quote_qty = EXCLUDED.quote_qty,
-              is_buyer_maker = EXCLUDED.is_buyer_maker
-            """,
+            ON CONFLICT (venue_id, instrument_id, time, id)
+            """
+            + conflict_sql,
             {
                 "venue_id": int(venue_id),
                 "instrument_id": int(instrument_id),
@@ -454,6 +524,27 @@ def download_and_ingest(
             plan = _build_plan(sym, start_date, end_date, prefer_monthly=prefer_monthly)
             logger.info("[%s] 回填计划: %d 个任务（prefer_monthly=%s）", sym, len(plan), prefer_monthly)
 
+            run_meta = {
+                "symbols": [str(sym).upper()],
+                "dataset": dataset,
+                "start_date": f"{start_date:%Y-%m-%d}",
+                "end_date": f"{end_date:%Y-%m-%d}",
+                "prefer_monthly": bool(prefer_monthly),
+                "allow_no_checksum": bool(allow_no_checksum),
+                "write_files": bool(write_files),
+                "write_db": bool(write_db),
+                "plan_items": len(plan),
+                "plan_daily": sum(1 for it in plan if it.kind == "daily"),
+                "plan_monthly": sum(1 for it in plan if it.kind == "monthly"),
+                "download_ok": 0,
+                "download_failed": 0,
+                "monthly_404": 0,
+                "ingest_ok": 0,
+                "ingest_failed": 0,
+                "file_rows_total": 0,
+                "affected_rows_total": 0,
+            }
+
             status = "success"
             error_message = None
 
@@ -473,6 +564,7 @@ def download_and_ingest(
                         r = _download_or_repair_zip(url, dst, allow_no_checksum=allow_no_checksum, timeout_seconds=60.0, max_retries=3)
                         if not r.ok:
                             logger.warning("[%s] 日度下载失败: %s (status=%s error=%s)", sym, url, r.status_code, r.error)
+                            run_meta["download_failed"] = int(run_meta["download_failed"]) + 1
                             status = "partial"
                             file_id = None
                             if storage_writer:
@@ -517,6 +609,7 @@ def download_and_ingest(
                                 )
                             continue
 
+                        run_meta["download_ok"] = int(run_meta["download_ok"]) + 1
                         file_id = None
                         if storage_writer:
                             file_id = storage_writer.get_or_create_file_id(
@@ -582,6 +675,9 @@ def download_and_ingest(
                                     )
                                 raise
                             conn.commit()
+                            run_meta["ingest_ok"] = int(run_meta["ingest_ok"]) + 1
+                            run_meta["file_rows_total"] = int(run_meta["file_rows_total"]) + int(stats.file_rows)
+                            run_meta["affected_rows_total"] = int(run_meta["affected_rows_total"]) + int(stats.affected_rows)
                             logger.info(
                                 "[%s] %s 入库完成: affected=%d file_rows=%d",
                                 sym,
@@ -638,11 +734,13 @@ def download_and_ingest(
                         r = _download_or_repair_zip(url, dst, allow_no_checksum=allow_no_checksum, timeout_seconds=60.0, max_retries=3)
                         if not r.ok and r.status_code == 404:
                             logger.info("[%s] 月度不存在，降级按日: %s", sym, item.period)
+                            run_meta["monthly_404"] = int(run_meta["monthly_404"]) + 1
                             daily = _build_plan(sym, item.start_date, item.end_date, prefer_monthly=False)
                             plan[i:i] = daily
                             continue
                         if not r.ok:
                             logger.warning("[%s] 月度下载失败: %s (status=%s error=%s)", sym, url, r.status_code, r.error)
+                            run_meta["download_failed"] = int(run_meta["download_failed"]) + 1
                             status = "partial"
                             file_id = None
                             month_date = date.fromisoformat(f"{item.period}-01")
@@ -688,6 +786,7 @@ def download_and_ingest(
                                 )
                             continue
 
+                        run_meta["download_ok"] = int(run_meta["download_ok"]) + 1
                         file_id = None
                         month_date = date.fromisoformat(f"{item.period}-01")
                         if storage_writer:
@@ -750,6 +849,9 @@ def download_and_ingest(
                                     )
                                 raise
                             conn.commit()
+                            run_meta["ingest_ok"] = int(run_meta["ingest_ok"]) + 1
+                            run_meta["file_rows_total"] = int(run_meta["file_rows_total"]) + int(stats.file_rows)
+                            run_meta["affected_rows_total"] = int(run_meta["affected_rows_total"]) + int(stats.affected_rows)
                             logger.info(
                                 "[%s] %s 月度入库完成: affected=%d file_rows=%d",
                                 sym,
@@ -800,11 +902,12 @@ def download_and_ingest(
             except Exception as e:  # noqa: BLE001
                 status = "failed"
                 error_message = str(e)
+                run_meta["ingest_failed"] = int(run_meta["ingest_failed"]) + 1
                 logger.error("[%s] 回填失败: %s", sym, e)
             finally:
                 if meta_writer and run_id is not None:
                     try:
-                        meta_writer.finish_run(run_id, status=status, error_message=error_message)
+                        meta_writer.finish_run(run_id, status=status, error_message=error_message, meta=run_meta)
                     except Exception as e:  # noqa: BLE001
                         logger.warning("[%s] 写入 ingest_runs 结束状态失败: %s", sym, e)
                 symbol_statuses[str(sym).upper()] = status

@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import logging
 from typing import Optional, Sequence
 
@@ -58,16 +59,32 @@ class IngestMetaWriter:
         self._conn.commit()
         return run_id
 
-    def finish_run(self, run_id: int, *, status: str, error_message: Optional[str] = None) -> None:
+    def finish_run(
+        self,
+        run_id: int,
+        *,
+        status: str,
+        error_message: Optional[str] = None,
+        meta: Optional[dict] = None,
+    ) -> None:
         sql = """
         UPDATE crypto.ingest_runs
         SET status = %(status)s,
             error_message = %(error_message)s,
-            finished_at = NOW()
+            finished_at = NOW(),
+            meta = crypto.ingest_runs.meta || COALESCE(%(meta)s::jsonb, '{}'::jsonb)
         WHERE run_id = %(run_id)s
         """
         with self._conn.cursor() as cur:
-            cur.execute(sql, {"run_id": int(run_id), "status": status, "error_message": error_message})
+            cur.execute(
+                sql,
+                {
+                    "run_id": int(run_id),
+                    "status": status,
+                    "error_message": error_message,
+                    "meta": json.dumps(meta, ensure_ascii=False) if meta else None,
+                },
+            )
         self._conn.commit()
 
     def upsert_watermark(self, *, exchange: str, dataset: str, symbol: str, last_time: int, last_id: int) -> None:

@@ -63,6 +63,19 @@ class CoreRegistry:
         self._venue_id_cache: dict[str, int] = {}
         self._instrument_id_cache: dict[tuple[int, str], int] = {}
 
+    def _lock_symbol_mapping(self, *, venue_code: str, symbol: str, cursor: psycopg.Cursor) -> None:
+        """对 (venue_code, symbol) 的“映射创建”加事务级互斥锁，避免并发下重复造 instrument / 重复插 symbol_map。
+
+        说明：
+        - 事实表写入通常存在“实时 + 回填”两条链路并发启动的可能；
+        - core.instrument 没有天然唯一键（除 PK），因此并发下必须显式加锁，才能保证“先查再建”语义稳定。
+        """
+
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s), hashtext(%s))",
+            (str(venue_code).strip().lower(), str(symbol).strip().upper()),
+        )
+
     def get_or_create_venue_id(
         self,
         venue_code: str,
@@ -122,6 +135,9 @@ class CoreRegistry:
 
         cur = cursor or self._conn.cursor()
         try:
+            # 并发保护：避免两个链路同时“看不到映射 -> 都创建 instrument -> 都插入 symbol_map”
+            self._lock_symbol_mapping(venue_code=venue_code, symbol=sym, cursor=cur)
+
             # 1) 先看当前映射（避免重复造 instrument）
             cur.execute(
                 """
@@ -209,4 +225,3 @@ class CoreRegistry:
 
 
 __all__ = ["CoreRegistry"]
-

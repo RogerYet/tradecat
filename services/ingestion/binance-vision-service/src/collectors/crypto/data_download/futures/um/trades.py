@@ -37,6 +37,7 @@ from src.runtime.download_utils import (
     probe_content_length,
     sha256_file,
 )
+from src.writers.core_registry import CoreRegistry
 from src.writers.pg import connect
 from src.writers.ingest_meta import IngestMetaWriter, IngestRunSpec
 from src.writers.import_meta import ImportBatchSpec, ImportMetaWriter
@@ -307,8 +308,16 @@ def _ingest_zip(
     end_ms: int,
     meta_writer: IngestMetaWriter | None,
     dataset: str,
+    core_registry: CoreRegistry,
 ) -> IngestZipStats:
     with conn.cursor() as cur:
+        venue_id, instrument_id = core_registry.resolve_venue_and_instrument_id(
+            venue_code=str(exchange).lower(),
+            symbol=str(symbol).upper(),
+            product="futures_um",
+            cursor=cur,
+        )
+
         cur.execute(
             """
             CREATE TEMP TABLE IF NOT EXISTS tmp_um_trades (
@@ -334,28 +343,28 @@ def _ingest_zip(
         cur.execute(
             """
             INSERT INTO crypto.raw_futures_um_trades (
-              exchange, symbol, id, price, qty, quote_qty, time, is_buyer_maker
+              venue_id, instrument_id, id, price, qty, quote_qty, time, is_buyer_maker
             )
             SELECT
-              %(exchange)s,
-              %(symbol)s,
+              %(venue_id)s,
+              %(instrument_id)s,
               id,
-              price,
-              qty,
-              quote_qty,
+              price::DOUBLE PRECISION,
+              qty::DOUBLE PRECISION,
+              quote_qty::DOUBLE PRECISION,
               time,
               is_buyer_maker
             FROM tmp_um_trades
             WHERE time >= %(start_ms)s AND time < %(end_ms)s
-            ON CONFLICT (exchange, symbol, time, id) DO UPDATE SET
+            ON CONFLICT (venue_id, instrument_id, time, id) DO UPDATE SET
               price = EXCLUDED.price,
               qty = EXCLUDED.qty,
               quote_qty = EXCLUDED.quote_qty,
               is_buyer_maker = EXCLUDED.is_buyer_maker
             """,
             {
-                "exchange": exchange,
-                "symbol": symbol.upper(),
+                "venue_id": int(venue_id),
+                "instrument_id": int(instrument_id),
                 "start_ms": int(start_ms),
                 "end_ms": int(end_ms),
             },
@@ -376,9 +385,9 @@ def _ingest_zip(
             """
             SELECT COUNT(*)
             FROM crypto.raw_futures_um_trades
-            WHERE exchange = %s AND symbol = %s AND time >= %s AND time < %s
+            WHERE venue_id = %s AND instrument_id = %s AND time >= %s AND time < %s
             """,
-            (exchange, symbol.upper(), int(start_ms), int(end_ms)),
+            (int(venue_id), int(instrument_id), int(start_ms), int(end_ms)),
         )
         fact_count = int((cur.fetchone() or (0,))[0])
         if tmp_count and fact_count < int(tmp_count):
@@ -414,6 +423,7 @@ def download_and_ingest(
 
     dataset = "futures.um.trades"
     conn = connect(database_url) if write_db else None
+    core_registry = CoreRegistry(conn) if conn is not None else None
     import_writer = ImportMetaWriter(conn) if conn is not None else None
     storage_writer = StorageFilesWriter(conn) if conn is not None else None
     batch_id: Optional[int] = None
@@ -547,6 +557,7 @@ def download_and_ingest(
 
                         if write_db:
                             assert conn is not None
+                            assert core_registry is not None
                             start_ms, end_ms = _date_range_ms_utc(item.start_date, item.end_date)
                             try:
                                 stats = _ingest_zip(
@@ -558,6 +569,7 @@ def download_and_ingest(
                                     end_ms=end_ms,
                                     meta_writer=meta_writer,
                                     dataset=dataset,
+                                    core_registry=core_registry,
                                 )
                             except Exception as e:  # noqa: BLE001
                                 if import_writer:
@@ -713,6 +725,7 @@ def download_and_ingest(
 
                         if write_db:
                             assert conn is not None
+                            assert core_registry is not None
                             start_ms, end_ms = _date_range_ms_utc(item.start_date, item.end_date)
                             try:
                                 stats = _ingest_zip(
@@ -724,6 +737,7 @@ def download_and_ingest(
                                     end_ms=end_ms,
                                     meta_writer=meta_writer,
                                     dataset=dataset,
+                                    core_registry=core_registry,
                                 )
                             except Exception as e:  # noqa: BLE001
                                 if import_writer:

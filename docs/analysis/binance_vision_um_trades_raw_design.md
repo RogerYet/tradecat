@@ -1,5 +1,14 @@
 # Binance Vision UM Trades Raw 表设计综述（含背景上下文）
 
+> ⚠️ **Deprecated / 已废弃**  
+> 本文记录的是“旧版 v1 事实表形态”（`exchange/symbol TEXT + NUMERIC`）。  
+> 你已明确要升级到业内成熟方案：`venue_id/instrument_id BIGINT + DOUBLE`（短主键、固定宽度、成本可控），并用 view 恢复可读性。  
+>
+> 最新真相源请以以下文档/DDL 为准：  
+> - `docs/analysis/crypto_trades_fact_table_pro_design.md`（全局专业版设计）  
+> - `docs/analysis/binance_vision_um_trades_mature_playbook.md`（UM trades 落地手册）  
+> - `libs/database/db/schema/009_crypto_binance_vision_landing.sql`（DDL 真相源）  
+
 ## 1. 背景上下文
 
 你当前的数据工程目标是：

@@ -221,9 +221,11 @@ CSV 字段（样本有 header）：
 ### 5.4 Trades / AggTrades（futures_um / spot 对称）
 
 `crypto.raw_futures_um_trades`（物理层，header）：
-- `id,price,qty,quote_qty,time,is_buyer_maker`
-- 唯一：`UNIQUE(symbol, id)`
-- `time` BIGINT（ms）+ `time_ts` TIMESTAMPTZ
+- 维度键：`venue_id,instrument_id`（由 `core.venue/core.symbol_map` 把 `exchange/symbol` 字典化）
+- 官方字段：`id,price,qty,quote_qty,time,is_buyer_maker`
+- 幂等键：`PRIMARY KEY(venue_id, instrument_id, time, id)`
+- `time`：BIGINT（ms）；**不存 `time_ts`**，展示时用 view/查询 `to_timestamp(time/1000.0)`
+- 可读性：提供只读 view 映射回 `exchange/symbol`（避免用 TEXT 做主键导致索引膨胀）
 
 `crypto.raw_spot_trades`（物理层，无 header）：
 - 列序按官方定义与样本一致；`time` 为 BIGINT（us）+ `time_ts`

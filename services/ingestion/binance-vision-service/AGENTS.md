@@ -66,9 +66,16 @@
 
 - 实时（WS）与历史回填（Vision ZIP）都写入同一张表；
 - 回填（官方）允许受控 UPDATE 修正差异列；
-- 表内 `symbol` 统一为 Binance 原生 `BTCUSDT` 形式。
+- 事实表主键必须“短且固定宽度”（不使用 `TEXT(exchange/symbol)` 做主键）。
 
-因此：该表不强制逐行 `file_id` 追溯；文件追溯只保留在“下载落盘路径/导入任务日志”层面。
+当前事实表契约（以 `libs/database/db/schema/009_crypto_binance_vision_landing.sql` 为准）：
+
+- 表：`crypto.raw_futures_um_trades`
+- 幂等键：`PRIMARY KEY (venue_id, instrument_id, time, id)`
+- 维度映射：采集侧用 `exchange/symbol(BTCUSDT)`，写库时通过 `core.venue/core.symbol_map` 解析为 `(venue_id,instrument_id)`
+- 可读性：对人类查询使用 view 把 `(venue_id,instrument_id)` 映射回 `exchange/symbol`
+
+因此：该表不强制逐行 `file_id` 追溯；文件追溯只保留在 `storage.*`（下载落盘路径/批次/错误）与导入任务日志层面。
 
 ## 5. 编码规范（面向可维护）
 

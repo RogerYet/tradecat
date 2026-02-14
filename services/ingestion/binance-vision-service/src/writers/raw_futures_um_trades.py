@@ -3,7 +3,7 @@
 # 对齐目标
 # - 表：crypto.raw_futures_um_trades
 # - CSV 列：id,price,qty,quote_qty,time,is_buyer_maker
-# - 关键约束：字段完备 + 幂等（ON CONFLICT DO NOTHING）
+# - 关键约束：字段完备 + 幂等（主键冲突时 DO NOTHING）
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import logging
 from typing import Iterable, List
 
 import psycopg
+
+from src.writers.core_registry import CoreRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ class RawFuturesUmTradeRow:
 class RawFuturesUmTradesWriter:
     def __init__(self, conn: psycopg.Connection):
         self._conn = conn
+        self._core = CoreRegistry(conn)
 
     def insert_rows(self, rows: Iterable[RawFuturesUmTradeRow]) -> int:
         batch: List[RawFuturesUmTradeRow] = list(rows)
@@ -41,8 +44,8 @@ class RawFuturesUmTradesWriter:
 
         sql = """
         INSERT INTO crypto.raw_futures_um_trades (
-            exchange,
-            symbol,
+            venue_id,
+            instrument_id,
             id,
             price,
             qty,
@@ -50,8 +53,8 @@ class RawFuturesUmTradesWriter:
             time,
             is_buyer_maker
         ) VALUES (
-            %(exchange)s,
-            %(symbol)s,
+            %(venue_id)s,
+            %(instrument_id)s,
             %(id)s,
             %(price)s,
             %(qty)s,
@@ -59,24 +62,40 @@ class RawFuturesUmTradesWriter:
             %(time)s,
             %(is_buyer_maker)s
         )
-        ON CONFLICT (exchange, symbol, time, id) DO NOTHING
+        ON CONFLICT (venue_id, instrument_id, time, id) DO NOTHING
         """
 
-        params = [
-            {
-                "exchange": r.exchange,
-                "symbol": r.symbol,
-                "id": r.id,
-                "price": r.price,
-                "qty": r.qty,
-                "quote_qty": r.quote_qty,
-                "time": r.time,
-                "is_buyer_maker": r.is_buyer_maker,
-            }
-            for r in batch
-        ]
-
         with self._conn.cursor() as cur:
+            # 映射/注册 core 维表（按 symbol 分组，避免每行查询）
+            pair_to_ids: dict[tuple[str, str], tuple[int, int]] = {}
+            for r in batch:
+                key = (str(r.exchange).lower(), str(r.symbol).upper())
+                if key in pair_to_ids:
+                    continue
+                pair_to_ids[key] = self._core.resolve_venue_and_instrument_id(
+                    venue_code=key[0],
+                    symbol=key[1],
+                    product="futures_um",
+                    cursor=cur,
+                )
+
+            params = []
+            for r in batch:
+                exchange = str(r.exchange).lower()
+                symbol = str(r.symbol).upper()
+                venue_id, instrument_id = pair_to_ids[(exchange, symbol)]
+                params.append(
+                    {
+                        "venue_id": venue_id,
+                        "instrument_id": instrument_id,
+                        "id": int(r.id),
+                        "price": float(r.price),
+                        "qty": float(r.qty),
+                        "quote_qty": float(r.quote_qty),
+                        "time": int(r.time),
+                        "is_buyer_maker": bool(r.is_buyer_maker),
+                    }
+                )
             cur.executemany(sql, params)
 
         self._conn.commit()

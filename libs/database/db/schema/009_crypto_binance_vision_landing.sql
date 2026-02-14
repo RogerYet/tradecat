@@ -63,16 +63,21 @@ END$$;
 
 -- futures/um/daily/trades/{SYMBOL}/{SYMBOL}-trades-YYYY-MM-DD.csv
 -- header：id,price,qty,quote_qty,time(ms),is_buyer_maker
+--
+-- 说明（重要）：
+-- - 该表是“逐笔事实表”，实时（WS）与历史回填（Vision ZIP）会写入同一张表。
+-- - 为了控制索引/体积成本，主键使用整型维度键（venue_id/instrument_id），不使用 TEXT 主键。
+-- - 每行的文件追溯在 storage.*（files/import_batches/import_errors）侧完成，本表不放 file_id。
 CREATE TABLE IF NOT EXISTS crypto.raw_futures_um_trades (
-    exchange        TEXT   NOT NULL,
-    symbol          TEXT   NOT NULL,
+    venue_id        BIGINT NOT NULL,
+    instrument_id   BIGINT NOT NULL,
     id              BIGINT NOT NULL,
-    price           NUMERIC(38, 12) NOT NULL,
-    qty             NUMERIC(38, 12) NOT NULL,
-    quote_qty       NUMERIC(38, 12) NOT NULL,
+    price           DOUBLE PRECISION NOT NULL,
+    qty             DOUBLE PRECISION NOT NULL,
+    quote_qty       DOUBLE PRECISION NOT NULL,
     time            BIGINT NOT NULL, -- epoch(ms)
     is_buyer_maker  BOOLEAN NOT NULL,
-    PRIMARY KEY (exchange, symbol, time, id)
+    PRIMARY KEY (venue_id, instrument_id, time, id)
 );
 
 -- integer hypertable 的 now()（用于压缩/保留等 policy job）
@@ -99,7 +104,7 @@ SELECT set_integer_now_func('crypto.raw_futures_um_trades', 'crypto.unix_now_ms'
 
 ALTER TABLE crypto.raw_futures_um_trades
     SET (timescaledb.compress = TRUE,
-         timescaledb.compress_segmentby = 'exchange,symbol',
+         timescaledb.compress_segmentby = 'venue_id,instrument_id',
          timescaledb.compress_orderby = 'time,id');
 
 DO $$
@@ -253,7 +258,7 @@ DROP INDEX IF EXISTS crypto.raw_futures_cm_trades_time_idx;
 SELECT set_integer_now_func('crypto.raw_futures_cm_trades', 'crypto.unix_now_ms', replace_if_exists => TRUE);
 ALTER TABLE crypto.raw_futures_cm_trades
     SET (timescaledb.compress = TRUE,
-         timescaledb.compress_segmentby = 'exchange,symbol',
+         timescaledb.compress_segmentby = 'venue_id,instrument_id',
          timescaledb.compress_orderby = 'time,id');
 DO $$
 BEGIN

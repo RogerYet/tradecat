@@ -17,7 +17,8 @@
 #
 # ==================== 落库目标（Raw/物理层） ====================
 # - 表：crypto.raw_futures_um_trades
-# - 幂等键：PRIMARY KEY (exchange, symbol, time, id)
+# - 幂等键：PRIMARY KEY (venue_id, instrument_id, time, id)
+# - 维度映射：由 core.venue/core.symbol_map 把 (exchange,symbol) 解析为 (venue_id,instrument_id)
 """
 
 from __future__ import annotations

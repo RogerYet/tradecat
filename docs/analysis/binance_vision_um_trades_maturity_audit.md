@@ -2,6 +2,8 @@
 
 > 目的：把“我们现在有什么 / 离业内成熟 tick-store 还差什么 / 下一步最值钱的升级是什么”固化成一份长期可复用的工程笔记。  
 > 范围：仅针对 **Binance Vision → futures/um/trades**（Raw/原子逐笔成交）。
+>
+> 重要更新（2026-02-15）：事实表已升级为“业内成熟结构”（`venue_id/instrument_id + DOUBLE`），旧的 `exchange/symbol TEXT + NUMERIC` 形态已废弃；若你的本机库仍是旧表，需要按迁移协议执行 rename swap。
 
 ---
 
@@ -24,16 +26,17 @@
  - 修复（gap repair）：`services/ingestion/binance-vision-service/src/collectors/crypto/repair/futures/um/trades.py`
    - 消费 `crypto.ingest_gaps(status='open')` → 触发权威回填 → 成功则关闭 gap（open->repairing->closed）
 
-# 落库（当前事实表 v1）
+# 落库（事实表：成熟结构）
 - 库/Schema：`market_data.crypto`
 - 表：`crypto.raw_futures_um_trades`
-- 字段（8 个）：官方 6 个 + 扩展 2 个
+- 字段（8 个）：官方 6 个 + 维度键 2 个
   - 官方：`id,price,qty,quote_qty,time,is_buyer_maker`
-  - 扩展：`exchange,symbol`
-- 幂等键（主键）：`PRIMARY KEY(exchange, symbol, time, id)`
+  - 维度：`venue_id,instrument_id`（通过 `core.venue/core.symbol_map` 把 exchange/symbol 字典化）
+- 幂等键（主键）：`PRIMARY KEY(venue_id, instrument_id, time, id)`
 - Timescale：integer hypertable（time=ms；chunk=1day）
-- 压缩：启用 compression（按 `exchange,symbol` 分段；按 `time,id` 排序；30 天后压缩）
+- 压缩：启用 compression（按 `venue_id,instrument_id` 分段；按 `time,id` 排序；30 天后压缩）
 - 索引策略：**只保留主键索引**（禁用并删除 Timescale 默认 `*_time_idx`）
+- 可读性：提供只读 view 把 `venue_id/instrument_id` 映射回 `exchange/symbol`（避免用 TEXT 做主键）
 
 # 旁路治理表（不污染事实表）
 - DDL：`libs/database/db/schema/012_crypto_ingest_governance.sql`
@@ -62,7 +65,7 @@
 +------------------------+------------------------------+------------------------------+-------------------------------+
 | 维度                   | 我们现在                      | 成熟做法                       | 影响/结论                      |
 +------------------------+------------------------------+------------------------------+-------------------------------+
-| 主键键长               | exchange/symbol=TEXT          | venue_id/instrument_id=INT   | 索引肥、写入放大；应优先升级    |
+| 主键键长               | venue_id/instrument_id=BIGINT | TEXT 主键（反例）              | ✅ 已升级：索引体积/写放大显著下降 |
 | 默认索引               | 已禁用 *_time_idx             | 最小索引（按查询加）           | ✅ 已止损                        |
 | 文件完整性校验         | sha256/.CHECKSUM 强校验（已落地）| sha256/.CHECKSUM 强校验       | ✅ 已补齐：静默损坏可阻断         |
 | 文件版本链审计         | storage.files/import_* + file_revisions（已落地） | 必须落地并自动检测 | ✅ 已补齐：来源可追溯/可复跑      |
@@ -98,11 +101,11 @@
 ### P1（成本/性能，直接决定你能存多久、写多快）
 
 # 3.3 维度字典化（把 TEXT 从主键挪走）
-- 现状：`PRIMARY KEY(exchange TEXT, symbol TEXT, time, id)` 导致主键索引极肥。
-- 成熟补齐（推荐优先级最高的性能升级）：
-  - 使用 `core.venue/core.instrument/core.symbol_map` 生成 `venue_id/instrument_id`
-  - 新表 `crypto.raw_futures_um_trades_v2`：`PRIMARY KEY(venue_id, instrument_id, time, id)`
-  - 用 view 兼容输出 `exchange/symbol`（不破坏你当前“学习向可读”）
+- 旧问题：`TEXT(exchange/symbol)` 作为主键会导致索引极肥、写入放大明显。
+- 成熟补齐（本仓库已按“不保留 v2”的硬约束改为迁移+swap）：
+  - 事实表主键：`PRIMARY KEY(venue_id, instrument_id, time, id)`
+  - `exchange/symbol` 仅用于展示/入参：通过 `core.venue/core.symbol_map` 映射（view 恢复可读性）
+  - 迁移落地：用 `*_new` 临时表导数+对账，最后 rename swap 到同一个正式表名
 
 # 3.4 NUMERIC 的体积与 CPU 成本
 - 现状：`NUMERIC(38,12)` 很稳，但贵。

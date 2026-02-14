@@ -379,8 +379,11 @@ def _ingest_zip(
         # - 回填默认允许 ON CONFLICT DO UPDATE（以官方为准）
         # - 但当窗口已落入“压缩可能生效”的时间段后，禁止 UPDATE（否则可能触发 decompress/recompress，代价很高）
         compress_after_ms = _get_um_trades_compress_after_ms(cur)
-        allow_update = True
-        if compress_after_ms is not None:
+        allow_update = False
+        if compress_after_ms is None:
+            logger.warning("[%s] 无法读取 compress_after，保守降级为 DO NOTHING: zip=%s", symbol, zip_path.name)
+        else:
+            allow_update = True
             now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
             if int(end_ms) < now_ms - int(compress_after_ms):
                 allow_update = False

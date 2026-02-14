@@ -45,6 +45,11 @@ def _parse_symbols(raw: str) -> list[str]:
     return symbols
 
 
+def _parse_symbols_optional(raw: str) -> list[str] | None:
+    symbols = [s.strip().upper() for s in (raw or "").split(",") if s.strip()]
+    return symbols or None
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -91,6 +96,22 @@ def main() -> None:
     backfill.add_argument("--no-files", action="store_true", help="不落盘 ZIP/CSV（只入库）")
     backfill.add_argument("--no-db", action="store_true", help="不入库（只落盘 ZIP/CSV）")
     backfill.add_argument("--no-prefer-monthly", action="store_true", help="禁用月度 ZIP 优先（强制按日回填）")
+    backfill.add_argument("--allow-no-checksum", action="store_true", help="允许缺失 CHECKSUM 时继续（会标记为 unverified）")
+
+    repair = sub.add_parser("repair", help="运行缺口修复（消费 crypto.ingest_gaps）")
+    repair.add_argument(
+        "--dataset",
+        required=True,
+        choices=[
+            "crypto.repair.futures.um.trades",
+        ],
+        help="修复卡片路径（与 src/collectors/crypto/repair/** 镜像对应）",
+    )
+    repair.add_argument("--symbols", default="", help="只修复指定 symbols（逗号分隔）；为空表示不过滤（全部 open gaps）")
+    repair.add_argument("--max-jobs", type=int, default=10, help="本次最多处理多少个 gap（默认 10）")
+    repair.add_argument("--no-files", action="store_true", help="不落盘 ZIP（只入库）")
+    repair.add_argument("--no-prefer-monthly", action="store_true", help="禁用月度 ZIP 优先（强制按日修复）")
+    repair.add_argument("--allow-no-checksum", action="store_true", help="允许缺失 CHECKSUM 时继续（会标记为 unverified）")
 
     args = parser.parse_args()
 
@@ -98,14 +119,16 @@ def main() -> None:
         logger.info("binance-vision-service v0.1.0")
         return
 
-    if args.cmd not in {"collect", "backfill"}:
-        logger.info("服务骨架已就绪：请通过 `python3 -m src collect ...` 或 `python3 -m src backfill ...` 运行采集器卡片。")
+    if args.cmd not in {"collect", "backfill", "repair"}:
+        logger.info(
+            "服务骨架已就绪：请通过 `python3 -m src collect ...` / `python3 -m src backfill ...` / `python3 -m src repair ...` 运行采集器卡片。"
+        )
         return
 
     cfg = load_config()
     service_root = Path(__file__).resolve().parent.parent
 
-    symbols = _parse_symbols(args.symbols)
+    symbols = _parse_symbols(args.symbols) if args.cmd in {"collect", "backfill"} else None
 
     if args.cmd == "collect":
         write_csv = not args.no_csv
@@ -156,12 +179,35 @@ def main() -> None:
                 write_files=write_files,
                 write_db=write_db,
                 prefer_monthly=not bool(args.no_prefer_monthly),
+                allow_no_checksum=bool(args.allow_no_checksum),
             )
             return
 
         raise RuntimeError(f"未知 dataset: {args.dataset}")
 
-    logger.info("请通过 `python3 -m src collect ...` 或 `python3 -m src backfill ...` 运行采集器卡片。")
+    if args.cmd == "repair":
+        write_files = not args.no_files
+        symbols = _parse_symbols_optional(args.symbols)
+
+        if args.dataset == "crypto.repair.futures.um.trades":
+            from src.collectors.crypto.repair.futures.um.trades import repair_open_gaps
+
+            r = repair_open_gaps(
+                service_root=service_root,
+                database_url=cfg.database_url,
+                binance_data_base=cfg.binance_data_base,
+                symbols=symbols,
+                max_jobs=int(args.max_jobs),
+                write_files=write_files,
+                prefer_monthly=not bool(args.no_prefer_monthly),
+                allow_no_checksum=bool(args.allow_no_checksum),
+            )
+            logger.info("repair 完成: claimed=%d closed=%d reopened=%d", r.claimed, r.closed, r.reopened)
+            return
+
+        raise RuntimeError(f"未知 dataset: {args.dataset}")
+
+    logger.info("请通过 `python3 -m src collect ...` / `python3 -m src backfill ...` / `python3 -m src repair ...` 运行采集器卡片。")
     return
 
 

@@ -60,6 +60,6 @@ pids/
 *.pid
 
 # Local data
-data/
-data_download/
-run/
+/data/
+/data_download/
+/run/

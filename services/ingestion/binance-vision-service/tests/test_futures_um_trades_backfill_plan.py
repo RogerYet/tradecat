@@ -7,6 +7,8 @@ from src.collectors.crypto.data_download.futures.um.trades import (
     _date_range_ms_utc,
     _relpath_daily_zip,
     _relpath_monthly_zip,
+    _vision_relpath_daily_zip,
+    _vision_relpath_monthly_zip,
 )
 
 
@@ -47,4 +49,5 @@ def test_date_range_ms_utc_end_is_exclusive_next_day() -> None:
 def test_relpath_templates_align_vision_download_layout() -> None:
     assert _relpath_daily_zip("BTCUSDT", date(2024, 2, 9)) == "data_download/futures/um/daily/trades/BTCUSDT/BTCUSDT-trades-2024-02-09.zip"
     assert _relpath_monthly_zip("BTCUSDT", "2024-02") == "data_download/futures/um/monthly/trades/BTCUSDT/BTCUSDT-trades-2024-02.zip"
-
+    assert _vision_relpath_daily_zip("BTCUSDT", date(2024, 2, 9)) == "data/futures/um/daily/trades/BTCUSDT/BTCUSDT-trades-2024-02-09.zip"
+    assert _vision_relpath_monthly_zip("BTCUSDT", "2024-02") == "data/futures/um/monthly/trades/BTCUSDT/BTCUSDT-trades-2024-02.zip"

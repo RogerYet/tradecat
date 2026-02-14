@@ -4,7 +4,7 @@ from pathlib import Path
 import zipfile
 
 import src.collectors.crypto.data_download.futures.um.trades as um_trades_download
-from src.runtime.download_utils import DownloadResult
+from src.runtime.download_utils import DownloadResult, DownloadTextResult
 
 
 def _write_zip_with_csv(path: Path, content: str) -> None:
@@ -17,22 +17,35 @@ def test_download_or_repair_keeps_existing_zip_when_remote_size_matches(tmp_path
     dst = tmp_path / "BTCUSDT-trades-2026-02.zip"
     _write_zip_with_csv(dst, "id,price,qty,quote_qty,time,is_buyer_maker\n1,1.0,1.0,1.0,1,true\n")
 
-    monkeypatch.setattr(um_trades_download, "probe_content_length", lambda *args, **kwargs: dst.stat().st_size)
+    sha = um_trades_download.sha256_file(dst)
+    checksum_text = f"{sha}  {dst.name}\n"
+    monkeypatch.setattr(
+        um_trades_download,
+        "download_text",
+        lambda *args, **kwargs: DownloadTextResult(ok=True, status_code=200, text=checksum_text, error=None),
+    )
 
     def _should_not_download(*args, **kwargs) -> DownloadResult:
         raise AssertionError("remote size 一致时不应触发重下")
 
     monkeypatch.setattr(um_trades_download, "download_file", _should_not_download)
 
-    result = um_trades_download._download_or_repair_zip("https://example.com/a.zip", dst)
+    result = um_trades_download._download_or_repair_zip("https://example.com/a.zip", dst, allow_no_checksum=False)
     assert result.ok is True
     assert um_trades_download._zip_has_csv(dst)
+    assert result.verified is True
+    assert result.checksum_sha256 == sha
 
 
 def test_download_or_repair_redownloads_when_remote_size_mismatch(tmp_path: Path, monkeypatch) -> None:
     dst = tmp_path / "BTCUSDT-trades-2026-03.zip"
     _write_zip_with_csv(dst, "id,price,qty,quote_qty,time,is_buyer_maker\n1,1.0,1.0,1.0,1,true\n")
 
+    monkeypatch.setattr(
+        um_trades_download,
+        "download_text",
+        lambda *args, **kwargs: DownloadTextResult(ok=False, status_code=404, text=None, error="404"),
+    )
     monkeypatch.setattr(um_trades_download, "probe_content_length", lambda *args, **kwargs: dst.stat().st_size + 10)
 
     called = {"value": False}
@@ -44,7 +57,8 @@ def test_download_or_repair_redownloads_when_remote_size_mismatch(tmp_path: Path
 
     monkeypatch.setattr(um_trades_download, "download_file", _fake_download)
 
-    result = um_trades_download._download_or_repair_zip("https://example.com/b.zip", dst)
+    result = um_trades_download._download_or_repair_zip("https://example.com/b.zip", dst, allow_no_checksum=True)
     assert called["value"] is True
     assert result.ok is True
     assert um_trades_download._zip_has_csv(dst)
+    assert result.verified is False

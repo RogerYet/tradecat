@@ -9,12 +9,12 @@
 
 > 说明：以下为规划阶段在仓库内执行的“只读检查”所得证据片段，用于锁定现状与后续 diff 的参照点。
 
-### Evidence 1: tasks 索引现状与新任务编号
+### Evidence 1: tasks 索引已重整（仅保留本任务为 0001）
 
 - Command: `ls -la tasks && sed -n '1,40p' tasks/INDEX.md`
 - Observed (excerpt):
-  - 已存在任务：`0001` ~ `0005`
-  - INDEX.md 最大编号：`0005` → 本任务编号选择：`0006`
+  - 已按当前阶段目标清理旧 tasks（0002-0005）
+  - 本任务重编号为 `0001` 作为任务系统入口
 
 ### Evidence 2: 下载工具没有 checksum 逻辑
 

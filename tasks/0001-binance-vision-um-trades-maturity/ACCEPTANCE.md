@@ -1,5 +1,6 @@
 # ACCEPTANCE - 精密验收标准
 
+> 任务编号：0001
 > 注意：验收必须按“原子断言”执行；不允许用“看起来差不多”替代。
 
 ## A. Happy Path（成功路径）
@@ -60,4 +61,3 @@
 - 不得修改 `crypto.raw_futures_um_trades` 的现有字段集合（保持你已确认的极简事实表）。
 - 不得引入非 `ccxt/ccxtpro` 的交易所 SDK 绕过数据契约。
 - 不得在本任务中新增派生层物理表（`aggTrades/klines/*Klines` 等）。
-

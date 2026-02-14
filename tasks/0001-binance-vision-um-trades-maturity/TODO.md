@@ -1,5 +1,6 @@
 # TODO - 微步骤执行清单
 
+> 任务编号：0001
 > 每一项都必须跑 Verify；任何 Gate 未满足不得进入下一项。
 
 ## P0（可信与审计）
@@ -34,4 +35,3 @@
 
 - P0：checksum 工具与 storage.import_* writer 可并行开发，但合并前必须统一接口与测试口径。
 - P0：repair CLI 与 backfill 审计落地可并行，但必须共享同一“窗口定义/对账口径”。
-

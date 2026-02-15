@@ -51,7 +51,7 @@
 - 原子/物理层（Raw/Atomic）DDL：`libs/database/db/schema/009_crypto_binance_vision_landing.sql`
 - 派生/汇总层（Derived，可选）DDL：`libs/database/db/schema/011_crypto_binance_vision_derived.sql`
 - 文件追溯表（必须用）：`libs/database/db/schema/008_multi_market_core_and_storage.sql`（`storage.files`）
-- symbol 映射硬约束（必须用）：`libs/database/db/schema/013_core_symbol_map_hardening.sql`（active 唯一性/窗口自洽）
+- symbol 映射硬约束（必须用）：`libs/database/db/schema/013_core_symbol_map_hardening.sql`（active 唯一性/窗口自洽/窗口不重叠）
 - 采集治理旁路表（run/watermark/gap）：`libs/database/db/schema/012_crypto_ingest_governance.sql`
 
 关键规则：
@@ -84,6 +84,7 @@
 - **当前映射必须唯一**：`core.symbol_map` 必须保证 active 映射唯一：  
   - `(venue_id, symbol)` 只能 1 条 `effective_to IS NULL`  
   - `(venue_id, instrument_id)` 只能 1 条 `effective_to IS NULL`  
+- **有效期窗口不重叠**：同一 `(venue_id,symbol)` / `(venue_id,instrument_id)` 的 `[effective_from,effective_to)` 窗口不得重叠（真正的 as-of 语义底座）。  
 - **as-of 语义防 NULL**：自动创建的“第一条映射”会把 `effective_from` 固定为 epoch（1970-01-01 UTC），避免“映射创建晚于历史回填”导致 readable view 在历史区间取不到 symbol。  
 
 因此：该表不强制逐行 `file_id` 追溯；文件追溯只保留在 `storage.*`（下载落盘路径/批次/错误）与导入任务日志层面。

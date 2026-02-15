@@ -10,11 +10,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import psycopg
 
 logger = logging.getLogger(__name__)
+
+
+def _deep_merge_dict(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(left)
+    for k, rv in right.items():
+        lv = merged.get(k)
+        if isinstance(lv, dict) and isinstance(rv, dict):
+            merged[k] = _deep_merge_dict(lv, rv)
+        else:
+            merged[k] = rv
+    return merged
 
 
 @dataclass(frozen=True)
@@ -67,12 +78,30 @@ class IngestMetaWriter:
         error_message: Optional[str] = None,
         meta: Optional[dict] = None,
     ) -> None:
+        merged_meta: Optional[dict] = None
+        if meta:
+            with self._conn.cursor() as cur:
+                cur.execute(
+                    "SELECT meta FROM crypto.ingest_runs WHERE run_id = %(run_id)s FOR UPDATE",
+                    {"run_id": int(run_id)},
+                )
+                row = cur.fetchone()
+                base: Any = row[0] if row else {}
+                if isinstance(base, str):
+                    try:
+                        base = json.loads(base)
+                    except Exception:
+                        base = {}
+                if not isinstance(base, dict):
+                    base = {}
+                merged_meta = _deep_merge_dict(base, meta)
+
         sql = """
         UPDATE crypto.ingest_runs
         SET status = %(status)s,
             error_message = %(error_message)s,
             finished_at = NOW(),
-            meta = crypto.ingest_runs.meta || COALESCE(%(meta)s::jsonb, '{}'::jsonb)
+            meta = COALESCE(%(meta)s::jsonb, crypto.ingest_runs.meta)
         WHERE run_id = %(run_id)s
         """
         with self._conn.cursor() as cur:
@@ -82,7 +111,7 @@ class IngestMetaWriter:
                     "run_id": int(run_id),
                     "status": status,
                     "error_message": error_message,
-                    "meta": json.dumps(meta, ensure_ascii=False) if meta else None,
+                    "meta": json.dumps(merged_meta, ensure_ascii=False) if merged_meta else None,
                 },
             )
         self._conn.commit()

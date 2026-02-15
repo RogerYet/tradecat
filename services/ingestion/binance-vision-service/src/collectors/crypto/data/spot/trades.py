@@ -88,6 +88,8 @@ class _RealtimeStats:
 
     csv_rows_written: int = 0
     db_rows_attempted: int = 0
+    csv_disabled_due_to_backpressure: int = 0
+    csv_disabled_at_queue_size: int = 0
 
 
 def _to_bool(value: Any) -> bool:
@@ -296,6 +298,8 @@ async def collect_realtime(
     if write_db and not database_url:
         raise ValueError("write_db=True 但 DATABASE_URL 为空")
 
+    write_csv_requested = bool(write_csv)
+
     exchange = ccxtpro.binance(
         {
             "enableRateLimit": True,
@@ -432,50 +436,80 @@ async def collect_realtime(
 
         while True:
             try:
-                t = await asyncio.wait_for(q.get(), timeout=flush_interval_seconds)
-                stats.queue_max_size = max(stats.queue_max_size, q.qsize() + 1)
-                rel_path = relpath_spot_trades_daily(t.symbol, t.file_date)
-                local_path = service_root / rel_path
+                t0 = await asyncio.wait_for(q.get(), timeout=flush_interval_seconds)
 
-                last_seen_time_ms[t.symbol] = int(t.time // 1000)
-                last_seen_id[t.symbol] = t.id
-                stats.max_lag_ms = max(stats.max_lag_ms, int(time.time() * 1000) - int(t.time // 1000))
+                batch: List[SpotTrade] = [t0]
+                drain_n = min(q.qsize(), 5000)
+                for _ in range(drain_n):
+                    try:
+                        batch.append(q.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
 
-                if write_csv:
-                    csv_buffer.setdefault(local_path, []).append(spot_trade_to_csv_row(t))
-                    csv_rows_count += 1
+                stats.queue_max_size = max(stats.queue_max_size, q.qsize() + len(batch))
 
-                if write_db and trades_writer:
-                    db_buffer.append(
-                        RawSpotTradeRow(
-                            exchange="binance",
-                            symbol=t.symbol,
-                            id=t.id,
-                            price=t.price,
-                            qty=t.qty,
-                            quote_qty=t.quote_qty,
-                            time=t.time,
-                            is_buyer_maker=t.is_buyer_maker,
-                            is_best_match=t.is_best_match,
+                for t in batch:
+                    rel_path = relpath_spot_trades_daily(t.symbol, t.file_date)
+                    local_path = service_root / rel_path
+
+                    last_seen_time_ms[t.symbol] = int(t.time // 1000)
+                    last_seen_id[t.symbol] = t.id
+                    stats.max_lag_ms = max(stats.max_lag_ms, int(time.time() * 1000) - int(t.time // 1000))
+
+                    # ==================== 背压降级策略（P1） ====================
+                    if (
+                        write_csv
+                        and write_db
+                        and stats.csv_disabled_due_to_backpressure == 0
+                        and q.maxsize > 0
+                        and q.qsize() >= int(q.maxsize * 0.9)
+                    ):
+                        write_csv = False
+                        csv_buffer.clear()
+                        csv_rows_count = 0
+                        stats.csv_disabled_due_to_backpressure = 1
+                        stats.csv_disabled_at_queue_size = max(stats.csv_disabled_at_queue_size, int(q.qsize()))
+                        logger.warning(
+                            "out_queue backlog 过高，自动关闭 CSV 写入以保障入库: qsize=%d maxsize=%d",
+                            int(q.qsize()),
+                            int(q.maxsize),
                         )
-                    )
 
-                # flush by size
-                if len(db_buffer) >= flush_max_rows or csv_rows_count >= flush_max_rows:
-                    stats.csv_rows_written += sum(len(rows) for rows in csv_buffer.values())
-                    stats.db_rows_attempted += len(db_buffer)
-                    _flush(
-                        csv_buffer,
-                        db_buffer,
-                        write_csv=write_csv,
-                        write_db=write_db,
-                        trades_writer=trades_writer,
-                        meta_writer=meta_writer,
-                        exchange="binance",
-                        dataset="spot.trades",
-                    )
-                    csv_rows_count = 0
-                    last_flush = asyncio.get_event_loop().time()
+                    if write_csv:
+                        csv_buffer.setdefault(local_path, []).append(spot_trade_to_csv_row(t))
+                        csv_rows_count += 1
+
+                    if write_db and trades_writer:
+                        db_buffer.append(
+                            RawSpotTradeRow(
+                                exchange="binance",
+                                symbol=t.symbol,
+                                id=t.id,
+                                price=t.price,
+                                qty=t.qty,
+                                quote_qty=t.quote_qty,
+                                time=t.time,
+                                is_buyer_maker=t.is_buyer_maker,
+                                is_best_match=t.is_best_match,
+                            )
+                        )
+
+                    # flush by size
+                    if len(db_buffer) >= flush_max_rows or csv_rows_count >= flush_max_rows:
+                        stats.csv_rows_written += sum(len(rows) for rows in csv_buffer.values())
+                        stats.db_rows_attempted += len(db_buffer)
+                        _flush(
+                            csv_buffer,
+                            db_buffer,
+                            write_csv=write_csv,
+                            write_db=write_db,
+                            trades_writer=trades_writer,
+                            meta_writer=meta_writer,
+                            exchange="binance",
+                            dataset="spot.trades",
+                        )
+                        csv_rows_count = 0
+                        last_flush = asyncio.get_event_loop().time()
 
             except asyncio.TimeoutError:
                 # flush by time
@@ -568,6 +602,7 @@ async def collect_realtime(
                         meta={
                             "symbols": [str(s).upper() for s in symbols],
                             "symbols_count": len(symbols),
+                            "write_csv_requested": bool(write_csv_requested),
                             "write_csv": bool(write_csv),
                             "write_db": bool(write_db),
                             "flush_max_rows": int(flush_max_rows),
@@ -584,6 +619,8 @@ async def collect_realtime(
                             "gaps_inserted": int(stats.gaps_inserted),
                             "csv_rows_written": int(stats.csv_rows_written),
                             "db_rows_attempted": int(stats.db_rows_attempted),
+                            "csv_disabled_due_to_backpressure": int(stats.csv_disabled_due_to_backpressure),
+                            "csv_disabled_at_queue_size": int(stats.csv_disabled_at_queue_size),
                         },
                     )
                 except Exception as e:  # noqa: BLE001

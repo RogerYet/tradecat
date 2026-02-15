@@ -39,7 +39,7 @@
 
 - `libs/database/db/schema/008_multi_market_core_and_storage.sql`
 - `libs/database/db/schema/009_crypto_binance_vision_landing.sql`（会被本方案的“最终 DDL”替换其中的 trades 部分）
-- `libs/database/db/schema/013_core_symbol_map_hardening.sql`（symbol_map 必须写死的硬约束：active 唯一性/窗口自洽）
+- `libs/database/db/schema/013_core_symbol_map_hardening.sql`（symbol_map 必须写死的硬约束：active 唯一性/窗口自洽/窗口不重叠）
 - `libs/database/db/schema/012_crypto_ingest_governance.sql`
 
 ---

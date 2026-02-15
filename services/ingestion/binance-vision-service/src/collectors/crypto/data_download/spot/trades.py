@@ -320,12 +320,8 @@ def _get_spot_trades_compress_after_us(cur: psycopg.Cursor) -> Optional[int]:
             SELECT (j.config->>'compress_after')::BIGINT
             FROM timescaledb_information.jobs j
             WHERE j.proc_name = 'policy_compression'
-              AND (j.config->>'hypertable_id')::BIGINT = (
-                SELECT id
-                FROM _timescaledb_catalog.hypertable
-                WHERE schema_name = 'crypto'
-                  AND table_name = 'raw_spot_trades'
-              )
+              AND j.hypertable_schema = 'crypto'
+              AND j.hypertable_name = 'raw_spot_trades'
             ORDER BY j.job_id DESC
             LIMIT 1
             """

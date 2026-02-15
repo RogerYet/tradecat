@@ -52,7 +52,9 @@
 - 派生/汇总层（Derived，可选）DDL：`libs/database/db/schema/011_crypto_binance_vision_derived.sql`
 - 文件追溯表（必须用）：`libs/database/db/schema/008_multi_market_core_and_storage.sql`（`storage.files`）
 - symbol 映射硬约束（必须用）：`libs/database/db/schema/013_core_symbol_map_hardening.sql`（active 唯一性/窗口自洽/窗口不重叠）
+- trades readable views（必须用）：`libs/database/db/schema/016_crypto_trades_readable_views.sql`（时间戳转换 + as-of 映射，不污染事实表）
 - 采集治理旁路表（run/watermark/gap）：`libs/database/db/schema/012_crypto_ingest_governance.sql`
+- raw trades 最小 sanity CHECK（必须用）：`libs/database/db/schema/019_crypto_raw_trades_sanity_checks.sql`（上线护栏：默认 NOT VALID，但对新写入强制校验）
 
 关键规则：
 
@@ -88,6 +90,21 @@
 - **as-of 语义防 NULL**：自动创建的“第一条映射”会把 `effective_from` 固定为 epoch（1970-01-01 UTC），避免“映射创建晚于历史回填”导致 readable view 在历史区间取不到 symbol。  
 
 因此：该表不强制逐行 `file_id` 追溯；文件追溯只保留在 `storage.*`（下载落盘路径/批次/错误）与导入任务日志层面。
+
+### 4.2 运维加固（必须遵守）
+
+- **019 的“历史硬一致”不要指望 `VALIDATE CONSTRAINT`**：
+  - 在启用 Timescale 压缩（columnstore）后的 hypertable 上，`ALTER TABLE ... VALIDATE CONSTRAINT ...` 在部分版本/组合上不受支持。
+  - 若要让历史也强一致，按 `docs/analysis/crypto_raw_trades_hardening_runbook.md` 的“重建 validated CHECK（ADD v2 / DROP / RENAME）”低峰执行。
+- **`--force-update` 必须 operator-only**：
+  - `--force-update` 会触发离线高成本路径：`decompress_chunk -> DO UPDATE -> compress_chunk`（仅 trades）。
+  - 日常采集/回填必须走默认门禁（越过压缩线或命中已压缩 chunk：冲突降级 `DO NOTHING`）。
+  - 推荐 RBAC：采集账号仅赋予 ingest 权限；`decompress_chunk/compress_chunk` 只授权 operator（见 runbook）。
+
+补充入口（单点索引）：
+
+- `docs/analysis/INDEX.md`（docs/analysis 单点真相入口）
+- `docs/analysis/crypto_raw_trades_hardening_runbook.md`（加固 runbook：约束硬化/权限隔离/验收 SQL）
 
 ## 5. 编码规范（面向可维护）
 

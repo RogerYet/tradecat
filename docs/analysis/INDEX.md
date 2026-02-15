@@ -1,0 +1,33 @@
+# docs/analysis 索引（单点真相入口）
+
+> 目标：让后来者在 30 秒内找到“设计真相源 / 落地手册 / 运维加固 / 验收口径”，避免文档互相打架。
+
+## 1) Binance Vision / trades 主线
+
+- `docs/analysis/crypto_trades_fact_table_pro_design.md`：逐笔事实表（ids+DOUBLE+integer hypertable）全局设计，含冲突裁决与窗口合同。
+- `docs/analysis/binance_vision_um_trades_mature_playbook.md`：UM trades 从 0→1 落地手册（迁移/验收/运维）。
+- `docs/analysis/binance_vision_um_trades_maturity_audit.md`：UM trades 成熟化审计快照（现状 vs 目标）。
+- `docs/analysis/binance_vision_db_physical_design.md`：crypto/core/storage 物理层说明（表职责、主键、时间语义）。
+- `docs/analysis/binance_vision_field_dictionary.md`：字段字典（对齐 Vision CSV 的字段语义与类型）。
+
+## 2) 加固与运维（强烈建议先读）
+
+- `docs/analysis/crypto_raw_trades_hardening_runbook.md`：trades sanity 约束“历史硬一致”、`--force-update` operator-only 权限隔离、验收 SQL。
+- `docs/analysis/layer_contract_one_pager.md`：采集→处理→消费的输入输出、幂等键、时间语义与观测指标（总合同）。
+
+## 3) DDL 真相源（仓库内脚本）
+
+> 以脚本为准，禁止在运行库手工“抄一份类似的”。
+
+- `libs/database/db/schema/008_multi_market_core_and_storage.sql`：`core/*` 与 `storage/*`（维表 + 文件审计证据链）。
+- `libs/database/db/schema/009_crypto_binance_vision_landing.sql`：`crypto.raw_*` 事实层（落库短主键、压缩/分片策略）。
+- `libs/database/db/schema/012_crypto_ingest_governance.sql`：`crypto.ingest_*` 治理旁路（runs/watermark/gaps）。
+- `libs/database/db/schema/013_core_symbol_map_hardening.sql`：`core.symbol_map` 语义硬约束（active 唯一/窗口自洽/窗口不重叠）。
+- `libs/database/db/schema/016_crypto_trades_readable_views.sql`：UM/CM/Spot trades readable views（as-of join + 时间戳转换）。
+- `libs/database/db/schema/019_crypto_raw_trades_sanity_checks.sql`：raw trades 最小 sanity CHECK（默认 NOT VALID，上线护栏）。
+- `libs/database/db/schema/018_core_binance_venue_code_futures_um.sql`：兼容迁移脚本（历史把 `futures_um` 写在 `venue_code=binance` 的环境使用）。
+
+## 4) 执行任务索引
+
+- `tasks/INDEX.md`：任务总索引（按 ID/优先级/目标）。
+

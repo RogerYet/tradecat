@@ -40,7 +40,14 @@
 - `libs/database/db/schema/008_multi_market_core_and_storage.sql`
 - `libs/database/db/schema/009_crypto_binance_vision_landing.sql`（会被本方案的“最终 DDL”替换其中的 trades 部分）
 - `libs/database/db/schema/013_core_symbol_map_hardening.sql`（symbol_map 必须写死的硬约束：active 唯一性/窗口自洽/窗口不重叠）
+- `libs/database/db/schema/016_crypto_trades_readable_views.sql`（trades 可读视图：时间戳转换 + as-of 映射）
+- `libs/database/db/schema/019_crypto_raw_trades_sanity_checks.sql`（raw trades 最小 sanity CHECK：默认 NOT VALID，上线护栏）
 - `libs/database/db/schema/012_crypto_ingest_governance.sql`
+
+相关 runbook / 索引：
+
+- `docs/analysis/crypto_raw_trades_hardening_runbook.md`（约束硬化、历史一致性、`--force-update` 权限隔离）
+- `docs/analysis/INDEX.md`（docs/analysis 单点真相入口）
 
 ---
 

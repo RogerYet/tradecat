@@ -82,7 +82,10 @@ class CoreRegistry:
         prod = str(product).strip().lower()
         if not prod:
             return base
-        return f"{base}_{prod}"
+        suffix = f"_{prod}"
+        if base.endswith(suffix):
+            return base
+        return f"{base}{suffix}"
 
     def _lock_symbol_mapping(self, *, venue_code: str, symbol: str, cursor: psycopg.Cursor) -> None:
         """对 (venue_code, symbol) 的“映射创建”加事务级互斥锁，避免并发下重复造 instrument / 重复插 symbol_map。
@@ -249,16 +252,43 @@ class CoreRegistry:
         product: str,
         cursor: Optional[psycopg.Cursor] = None,
     ) -> tuple[int, int]:
-        qualified_venue_code = self._qualify_venue_code(venue_code=venue_code, product=product)
-        vid = self.get_or_create_venue_id(qualified_venue_code, cursor=cursor)
-        iid = self.get_or_create_instrument_id(
-            venue_id=vid,
-            venue_code=qualified_venue_code,
-            symbol=symbol,
-            product=product,
-            cursor=cursor,
-        )
-        return vid, iid
+        base_code = str(venue_code).strip().lower()
+        prod = str(product).strip().lower()
+        qualified_venue_code = self._qualify_venue_code(venue_code=base_code, product=prod)
+
+        cur = cursor or self._conn.cursor()
+        try:
+            # ==================== 兼容性门禁（P0） ====================
+            # 目标：避免“旧运行库未迁移”时静默创建新 venue_id，导致事实表 split（同一产品写入不同 venue_id）。
+            #
+            # 当前已知高风险场景：
+            # - 历史库：futures_um 曾使用 venue_code=binance
+            # - 新代码：要求 futures_um 使用 venue_code=binance_futures_um（产品维度进入键空间）
+            # 如果 operator 忘记先跑迁移脚本，get_or_create_venue_id() 会创建一条新 venue（新 venue_id），后果很难回收。
+            if base_code == "binance" and prod == "futures_um" and qualified_venue_code != base_code:
+                cur.execute("SELECT 1 FROM core.venue WHERE venue_code = %s LIMIT 1", (base_code,))
+                base_exists = cur.fetchone() is not None
+                cur.execute("SELECT 1 FROM core.venue WHERE venue_code = %s LIMIT 1", (qualified_venue_code,))
+                qualified_exists = cur.fetchone() is not None
+                if base_exists and not qualified_exists:
+                    raise RuntimeError(
+                        "检测到旧运行库 core.venue(venue_code='binance') 仍存在，但采集已要求 futures_um 使用 "
+                        f"'{qualified_venue_code}'。为避免生成新的 venue_id 导致事实表 split，请先执行迁移脚本："
+                        "libs/database/db/schema/018_core_binance_venue_code_futures_um.sql"
+                    )
+
+            vid = self.get_or_create_venue_id(qualified_venue_code, cursor=cur)
+            iid = self.get_or_create_instrument_id(
+                venue_id=vid,
+                venue_code=qualified_venue_code,
+                symbol=symbol,
+                product=prod,
+                cursor=cur,
+            )
+            return vid, iid
+        finally:
+            if cursor is None:
+                cur.close()
 
 
 __all__ = ["CoreRegistry"]

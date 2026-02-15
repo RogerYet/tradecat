@@ -24,31 +24,54 @@ CREATE SCHEMA IF NOT EXISTS crypto;
 -- spot/daily/trades/{SYMBOL}/{SYMBOL}-trades-YYYY-MM-DD.csv
 -- 样本列序（无 header）：
 --   id, price, qty, quote_qty, time(us), is_buyer_maker, is_best_match
+--
+-- 说明（重要）：
+-- - 该表是“逐笔事实表”，实时（WS）与历史回填（Vision ZIP）会写入同一张表。
+-- - 为了控制索引/体积成本，主键使用整型维度键（venue_id/instrument_id），不使用 TEXT(symbol) 做主键。
+-- - 每行的文件追溯在 storage.*（files/import_batches/import_errors）侧完成，本表不放 file_id。
 CREATE TABLE IF NOT EXISTS crypto.raw_spot_trades (
-    file_id         BIGINT NOT NULL REFERENCES storage.files(file_id),
-    symbol          TEXT   NOT NULL,
+    venue_id        BIGINT NOT NULL,
+    instrument_id   BIGINT NOT NULL,
     id              BIGINT NOT NULL,
-    price           NUMERIC(38, 12) NOT NULL,
-    qty             NUMERIC(38, 12) NOT NULL,
-    quote_qty       NUMERIC(38, 12) NOT NULL,
+    price           DOUBLE PRECISION NOT NULL,
+    qty             DOUBLE PRECISION NOT NULL,
+    quote_qty       DOUBLE PRECISION NOT NULL,
     time            BIGINT NOT NULL, -- epoch(us)
-    time_ts         TIMESTAMPTZ NOT NULL, -- 建议导入时由 time 计算：to_timestamp(time / 1000000.0)
     is_buyer_maker  BOOLEAN NOT NULL,
     is_best_match   BOOLEAN,
-    ingested_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (symbol, time_ts, id)
+    PRIMARY KEY (venue_id, instrument_id, time, id)
 );
 
-SELECT create_hypertable('crypto.raw_spot_trades', 'time_ts', chunk_time_interval => INTERVAL '1 day', if_not_exists => TRUE);
+-- integer hypertable 的 now()（用于压缩/保留等 policy job）
+CREATE OR REPLACE FUNCTION crypto.unix_now_us() RETURNS BIGINT
+LANGUAGE SQL
+STABLE
+AS $$
+  SELECT (EXTRACT(EPOCH FROM NOW()) * 1000000)::BIGINT
+$$;
+
+-- 使用整数时间列（epoch us）作为 hypertable 时间轴：
+-- - chunk_time_interval 单位与 time 列一致（us）
+-- - 86400000000us = 1 day
+SELECT create_hypertable(
+    'crypto.raw_spot_trades',
+    'time',
+    chunk_time_interval => 86400000000,
+    create_default_indexes => FALSE,
+    if_not_exists => TRUE
+);
+DROP INDEX IF EXISTS crypto.raw_spot_trades_time_idx;
+SELECT set_integer_now_func('crypto.raw_spot_trades', 'crypto.unix_now_us', replace_if_exists => TRUE);
 
 ALTER TABLE crypto.raw_spot_trades
     SET (timescaledb.compress = TRUE,
-         timescaledb.compress_segmentby = 'symbol',
-         timescaledb.compress_orderby = 'time_ts,id');
+         timescaledb.compress_segmentby = 'venue_id,instrument_id',
+         timescaledb.compress_orderby = 'time,id');
 
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto.raw_spot_trades', INTERVAL '3 days');
+    -- 30 days = 30 * 86400000000(us)
+    PERFORM add_compression_policy('crypto.raw_spot_trades', 2592000000000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 

@@ -66,8 +66,10 @@ def main() -> None:
         "--dataset",
         required=True,
         choices=[
-            # 先只开放 UM trades（其余卡片逐步补齐）
+            # 逐步补齐（严格对齐 Vision 数据集）
             "crypto.data.futures.um.trades",
+            "crypto.data.futures.cm.trades",
+            "crypto.data.spot.trades",
         ],
         help="采集器卡片路径（与 src/collectors/crypto/data/** 镜像对应）",
     )
@@ -87,6 +89,8 @@ def main() -> None:
         required=True,
         choices=[
             "crypto.data_download.futures.um.trades",
+            "crypto.data_download.futures.cm.trades",
+            "crypto.data_download.spot.trades",
         ],
         help="下载回填卡片路径（与 src/collectors/crypto/data_download/** 镜像对应）",
     )
@@ -154,6 +158,46 @@ def main() -> None:
             )
             return
 
+        if args.dataset == "crypto.data.futures.cm.trades":
+            from src.collectors.crypto.data.futures.cm.trades import collect_realtime
+
+            asyncio.run(
+                collect_realtime(
+                    symbols=symbols,
+                    service_root=service_root,
+                    database_url=cfg.database_url,
+                    write_csv=write_csv,
+                    write_db=write_db,
+                    flush_max_rows=int(args.flush_max_rows),
+                    flush_interval_seconds=float(args.flush_interval),
+                    window_seconds=int(args.window_seconds),
+                    rest_overlap_multiplier=int(args.rest_overlap_multiplier),
+                    gap_threshold_seconds=int(args.gap_threshold_seconds),
+                    gap_check_interval_seconds=float(args.gap_check_interval),
+                )
+            )
+            return
+
+        if args.dataset == "crypto.data.spot.trades":
+            from src.collectors.crypto.data.spot.trades import collect_realtime
+
+            asyncio.run(
+                collect_realtime(
+                    symbols=symbols,
+                    service_root=service_root,
+                    database_url=cfg.database_url,
+                    write_csv=write_csv,
+                    write_db=write_db,
+                    flush_max_rows=int(args.flush_max_rows),
+                    flush_interval_seconds=float(args.flush_interval),
+                    window_seconds=int(args.window_seconds),
+                    rest_overlap_multiplier=int(args.rest_overlap_multiplier),
+                    gap_threshold_seconds=int(args.gap_threshold_seconds),
+                    gap_check_interval_seconds=float(args.gap_check_interval),
+                )
+            )
+            return
+
         raise RuntimeError(f"未知 dataset: {args.dataset}")
 
     if args.cmd == "backfill":
@@ -168,6 +212,40 @@ def main() -> None:
 
         if args.dataset == "crypto.data_download.futures.um.trades":
             from src.collectors.crypto.data_download.futures.um.trades import download_and_ingest
+
+            download_and_ingest(
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                service_root=service_root,
+                database_url=cfg.database_url,
+                binance_data_base=cfg.binance_data_base,
+                write_files=write_files,
+                write_db=write_db,
+                prefer_monthly=not bool(args.no_prefer_monthly),
+                allow_no_checksum=bool(args.allow_no_checksum),
+            )
+            return
+
+        if args.dataset == "crypto.data_download.futures.cm.trades":
+            from src.collectors.crypto.data_download.futures.cm.trades import download_and_ingest
+
+            download_and_ingest(
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                service_root=service_root,
+                database_url=cfg.database_url,
+                binance_data_base=cfg.binance_data_base,
+                write_files=write_files,
+                write_db=write_db,
+                prefer_monthly=not bool(args.no_prefer_monthly),
+                allow_no_checksum=bool(args.allow_no_checksum),
+            )
+            return
+
+        if args.dataset == "crypto.data_download.spot.trades":
+            from src.collectors.crypto.data_download.spot.trades import download_and_ingest
 
             download_and_ingest(
                 symbols=symbols,

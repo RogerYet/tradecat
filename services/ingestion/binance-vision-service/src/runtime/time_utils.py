@@ -19,3 +19,14 @@ def ms_to_datetime_utc(epoch_ms: int) -> datetime:
 def ms_to_date_utc(epoch_ms: int) -> date:
     """epoch(ms) -> UTC date。"""
     return ms_to_datetime_utc(epoch_ms).date()
+
+
+def us_to_datetime_utc(epoch_us: int) -> datetime:
+    """epoch(us) -> UTC aware datetime（无 float 误差）。"""
+    seconds, us = divmod(int(epoch_us), 1_000_000)
+    return datetime.fromtimestamp(seconds, tz=timezone.utc) + timedelta(microseconds=us)
+
+
+def us_to_date_utc(epoch_us: int) -> date:
+    """epoch(us) -> UTC date。"""
+    return us_to_datetime_utc(epoch_us).date()

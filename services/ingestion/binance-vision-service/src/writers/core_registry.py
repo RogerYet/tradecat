@@ -192,9 +192,9 @@ class CoreRegistry:
                   %s,
                   jsonb_build_object(
                     'source', 'binance_vision',
-                    'venue_code', %s,
-                    'symbol', %s,
-                    'product', %s
+                    'venue_code', %s::TEXT,
+                    'symbol', %s::TEXT,
+                    'product', %s::TEXT
                   )
                 )
                 RETURNING instrument_id

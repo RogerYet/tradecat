@@ -38,7 +38,7 @@ def append_csv_rows(path: Path, header: Sequence[str], rows: Iterable[Sequence[o
 
     with path.open("a", newline="") as f:
         writer = csv.writer(f)
-        if write_header:
+        if write_header and header:
             writer.writerow(list(header))
         for row in rows:
             writer.writerow(list(row))

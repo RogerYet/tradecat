@@ -37,9 +37,11 @@ LEFT JOIN LATERAL (
     FROM core.symbol_map m
     WHERE m.venue_id = t.venue_id
       AND m.instrument_id = t.instrument_id
-      AND ts.time_ts_utc >= m.effective_from
-      AND (m.effective_to IS NULL OR ts.time_ts_utc < m.effective_to)
-    ORDER BY m.effective_from DESC
+      AND tstzrange(
+            m.effective_from,
+            COALESCE(m.effective_to, 'infinity'::timestamptz),
+            '[)'
+          ) @> ts.time_ts_utc
     LIMIT 1
 ) sm ON TRUE;
 
@@ -69,9 +71,11 @@ LEFT JOIN LATERAL (
     FROM core.symbol_map m
     WHERE m.venue_id = t.venue_id
       AND m.instrument_id = t.instrument_id
-      AND ts.time_ts_utc >= m.effective_from
-      AND (m.effective_to IS NULL OR ts.time_ts_utc < m.effective_to)
-    ORDER BY m.effective_from DESC
+      AND tstzrange(
+            m.effective_from,
+            COALESCE(m.effective_to, 'infinity'::timestamptz),
+            '[)'
+          ) @> ts.time_ts_utc
     LIMIT 1
 ) sm ON TRUE;
 
@@ -102,9 +106,10 @@ LEFT JOIN LATERAL (
     FROM core.symbol_map m
     WHERE m.venue_id = t.venue_id
       AND m.instrument_id = t.instrument_id
-      AND ts.time_ts_utc >= m.effective_from
-      AND (m.effective_to IS NULL OR ts.time_ts_utc < m.effective_to)
-    ORDER BY m.effective_from DESC
+      AND tstzrange(
+            m.effective_from,
+            COALESCE(m.effective_to, 'infinity'::timestamptz),
+            '[)'
+          ) @> ts.time_ts_utc
     LIMIT 1
 ) sm ON TRUE;
-

@@ -74,15 +74,13 @@ class CoreRegistry:
         - 最小且不改 schema 的做法：把“产品维度”折叠进 venue_code（例如 binance_futures_cm / binance_spot）。
 
         兼容性：
-        - 当前运行库里 futures_um 已使用 venue_code=binance 写入并落库；为避免现在就引发 venue_id 漂移，
-          futures_um 暂时保持不加后缀（后续若需要统一命名，可走一次性迁移）。
+        - 若历史运行库曾把 futures_um 写在 venue_code=binance 下，需要先做一次性迁移：
+          core.venue: binance -> binance_futures_um（保持 venue_id 不变）
         """
 
         base = str(venue_code).strip().lower()
         prod = str(product).strip().lower()
         if not prod:
-            return base
-        if prod == "futures_um":
             return base
         return f"{base}_{prod}"
 

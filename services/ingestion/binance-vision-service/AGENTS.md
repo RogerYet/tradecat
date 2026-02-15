@@ -80,7 +80,7 @@
 
 - **产品维度必须纳入键空间**：spot / futures_um / futures_cm / option 会共享 `BTCUSDT` 这类同名 symbol，不能都落在同一个 `venue_code=binance` 下。  
   - 最小做法：把 product 折叠进 `core.venue.venue_code`（例如 `binance_spot` / `binance_futures_cm` / `binance_option`）。  
-  - 兼容性：当前运行库的 `futures_um` 已使用 `venue_code=binance` 落库，因此 `futures_um` 暂时不加后缀；未来若要统一命名，走一次性迁移即可。  
+  - 兼容性：若历史运行库曾把 `futures_um` 落在 `venue_code=binance` 下，需先做一次性迁移：`core.venue: binance -> binance_futures_um`（保持 `venue_id` 不变），脚本见 `libs/database/db/schema/018_core_binance_venue_code_futures_um.sql`。  
 - **当前映射必须唯一**：`core.symbol_map` 必须保证 active 映射唯一：  
   - `(venue_id, symbol)` 只能 1 条 `effective_to IS NULL`  
   - `(venue_id, instrument_id)` 只能 1 条 `effective_to IS NULL`  

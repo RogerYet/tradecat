@@ -84,7 +84,7 @@ UM trades header：
 
 - **产品维度必须纳入键空间**：同一交易所的 spot / futures_um / futures_cm / option 会共享 `BTCUSDT` 这类同名 symbol。  
   - 最小方案（不改 schema）：把 product 折叠进 `core.venue.venue_code`，例如 `binance_spot / binance_futures_cm / binance_option`。  
-  - 兼容性：你当前运行库的 `futures_um` 已用 `venue_code=binance` 落库；为避免立刻引发 venue_id 漂移，`futures_um` 可先保留不加后缀，后续统一命名走一次性迁移。  
+  - 兼容性：若历史运行库曾把 `futures_um` 落在 `venue_code=binance` 下，需先做一次性迁移：`core.venue: binance -> binance_futures_um`（保持 `venue_id` 不变），脚本见 `libs/database/db/schema/018_core_binance_venue_code_futures_um.sql`；再切换采集代码。
 
 > 对人类可读的 `exchange/symbol`：不放进事实表主键；用 view/维表 join 恢复。  
 

@@ -88,6 +88,7 @@ class _RealtimeStats:
 
     csv_rows_written: int = 0
     db_rows_attempted: int = 0
+    db_rows_inserted: int = 0
     csv_disabled_due_to_backpressure: int = 0
     csv_disabled_at_queue_size: int = 0
 
@@ -243,18 +244,21 @@ def _flush(
     meta_writer: Optional[IngestMetaWriter],
     exchange: str,
     dataset: str,
-) -> None:
+) -> int:
+    inserted = 0
     if write_csv and csv_buffer:
         for path, rows in list(csv_buffer.items()):
             append_csv_rows(path, CSV_HEADER, rows)
         csv_buffer.clear()
 
     if write_db and trades_writer and db_buffer:
-        n = trades_writer.insert_rows(db_buffer)
-        logger.info("Spot trades 入库 %d 条", n)
+        attempted = int(len(db_buffer))
+        inserted = int(trades_writer.insert_rows(db_buffer))
+        logger.info("Spot trades 入库 inserted=%d attempted=%d", inserted, attempted)
         if meta_writer:
             _update_watermark(meta_writer, db_buffer, exchange=exchange, dataset=dataset)
         db_buffer.clear()
+    return int(inserted)
 
 
 def _update_watermark(meta_writer: IngestMetaWriter, rows: List[RawSpotTradeRow], *, exchange: str, dataset: str) -> None:
@@ -498,7 +502,7 @@ async def collect_realtime(
                     if len(db_buffer) >= flush_max_rows or csv_rows_count >= flush_max_rows:
                         stats.csv_rows_written += sum(len(rows) for rows in csv_buffer.values())
                         stats.db_rows_attempted += len(db_buffer)
-                        _flush(
+                        stats.db_rows_inserted += _flush(
                             csv_buffer,
                             db_buffer,
                             write_csv=write_csv,
@@ -517,7 +521,7 @@ async def collect_realtime(
                 if now - last_flush >= flush_interval_seconds:
                     stats.csv_rows_written += sum(len(rows) for rows in csv_buffer.values())
                     stats.db_rows_attempted += len(db_buffer)
-                    _flush(
+                    stats.db_rows_inserted += _flush(
                         csv_buffer,
                         db_buffer,
                         write_csv=write_csv,
@@ -577,7 +581,7 @@ async def collect_realtime(
 
             stats.csv_rows_written += sum(len(rows) for rows in csv_buffer.values())
             stats.db_rows_attempted += len(db_buffer)
-            _flush(
+            stats.db_rows_inserted += _flush(
                 csv_buffer,
                 db_buffer,
                 write_csv=write_csv,
@@ -619,6 +623,7 @@ async def collect_realtime(
                             "gaps_inserted": int(stats.gaps_inserted),
                             "csv_rows_written": int(stats.csv_rows_written),
                             "db_rows_attempted": int(stats.db_rows_attempted),
+                            "db_rows_inserted": int(stats.db_rows_inserted),
                             "csv_disabled_due_to_backpressure": int(stats.csv_disabled_due_to_backpressure),
                             "csv_disabled_at_queue_size": int(stats.csv_disabled_at_queue_size),
                         },

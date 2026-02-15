@@ -100,10 +100,11 @@ class RawSpotTradesWriter:
                     }
                 )
             cur.executemany(sql, params)
+            rc = cur.rowcount
+            inserted = int(rc) if rc is not None and int(rc) >= 0 else len(batch)
 
         self._conn.commit()
-        return len(batch)
+        return int(inserted)
 
 
 __all__ = ["RawSpotTradeRow", "RawSpotTradesWriter"]
-

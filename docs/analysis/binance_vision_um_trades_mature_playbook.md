@@ -95,6 +95,7 @@ UM trades CSV header：
 - `libs/database/db/schema/008_multi_market_core_and_storage.sql`
 - `libs/database/db/schema/009_crypto_binance_vision_landing.sql`
 - `libs/database/db/schema/013_core_symbol_map_hardening.sql`（symbol_map 必须写死的硬约束：active 唯一性/窗口自洽/窗口不重叠）
+- `libs/database/db/schema/018_core_binance_venue_code_futures_um.sql`（兼容性迁移：若历史运行库把 futures_um 写在 `venue_code=binance` 下，需先改名为 `binance_futures_um` 且保持 `venue_id` 不变）
 - `libs/database/db/schema/012_crypto_ingest_governance.sql`
 
 ---
@@ -354,6 +355,7 @@ LEFT JOIN LATERAL (
 ### 12.2 推荐迁移步骤（通用模板）
 
 1) 创建/补齐 `core.*` 维表（venue/instrument/symbol_map）  
+   - Binance：产品维度必须纳入 `core.venue.venue_code` 键空间（UM=`binance_futures_um`）；若旧库仍为 `binance`，先应用 `018_core_binance_venue_code_futures_um.sql`  
 2) 创建新表 `crypto.raw_futures_um_trades_new`（目标 DDL）  
 3) 从旧表迁移数据：
    - 把旧表的 `exchange/symbol` 映射到 `(venue_id,instrument_id)`

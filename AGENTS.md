@@ -634,6 +634,12 @@ CI（`.github/workflows/ci.yml`）仅执行：
 - 不确定的端口、路径、命令**必须**验证后再写入
 - 三份文档（README.md、README_EN.md、AGENTS.md）保持同步
 
+### 9.3 设计/运维文档入口（单点索引）
+
+- `docs/analysis/INDEX.md`：分析/设计/落地文档索引（单点真相入口）。
+- `docs/analysis/crypto_raw_trades_hardening_runbook.md`：trades 加固 runbook（019 历史一致性、`--force-update` 权限隔离、验收 SQL）。
+- `services/ingestion/binance-vision-service/AGENTS.md`：采集服务内硬契约（DDL 真相源、事实表契约、运维加固要点）。
+
 ---
 
 ## 10. 环境变量参考
@@ -752,3 +758,4 @@ sqlite3 libs/database/services/telegram-service/market_data.db
 - 2026-02-10: 新增 `docs/architecture/CONSTITUTION.md`，确立长期治理的系统宪法（单向依赖/单一真相源/幂等与时间语义/可观测/变更可回滚）与强制约束清单。
 - 2026-02-14: 归档 `services/ingestion/data-service` → `artifacts/services-archived/ingestion/data-service`，避免污染现行采集链路。
 - 2026-02-12: 新增综合市场数据库 DDL（`core/storage/crypto`），并把 Binance Vision 的“基元物理层 vs 可派生层”按脚本/表集合分层（均在 `crypto` 根内；表名使用 `raw_*`/`agg_*` 前缀；`raw_option_eoh_summary` 按约束保留在物理层）。
+- 2026-02-15: 新增 `docs/analysis/INDEX.md` 与 `docs/analysis/crypto_raw_trades_hardening_runbook.md`，并把入口写入 `AGENTS.md` 与采集服务契约文档。

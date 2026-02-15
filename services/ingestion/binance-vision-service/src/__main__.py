@@ -108,6 +108,8 @@ def main() -> None:
         required=True,
         choices=[
             "crypto.repair.futures.um.trades",
+            "crypto.repair.futures.cm.trades",
+            "crypto.repair.spot.trades",
         ],
         help="修复卡片路径（与 src/collectors/crypto/repair/** 镜像对应）",
     )
@@ -269,6 +271,38 @@ def main() -> None:
 
         if args.dataset == "crypto.repair.futures.um.trades":
             from src.collectors.crypto.repair.futures.um.trades import repair_open_gaps
+
+            r = repair_open_gaps(
+                service_root=service_root,
+                database_url=cfg.database_url,
+                binance_data_base=cfg.binance_data_base,
+                symbols=symbols,
+                max_jobs=int(args.max_jobs),
+                write_files=write_files,
+                prefer_monthly=not bool(args.no_prefer_monthly),
+                allow_no_checksum=bool(args.allow_no_checksum),
+            )
+            logger.info("repair 完成: claimed=%d closed=%d reopened=%d", r.claimed, r.closed, r.reopened)
+            return
+
+        if args.dataset == "crypto.repair.futures.cm.trades":
+            from src.collectors.crypto.repair.futures.cm.trades import repair_open_gaps
+
+            r = repair_open_gaps(
+                service_root=service_root,
+                database_url=cfg.database_url,
+                binance_data_base=cfg.binance_data_base,
+                symbols=symbols,
+                max_jobs=int(args.max_jobs),
+                write_files=write_files,
+                prefer_monthly=not bool(args.no_prefer_monthly),
+                allow_no_checksum=bool(args.allow_no_checksum),
+            )
+            logger.info("repair 完成: claimed=%d closed=%d reopened=%d", r.claimed, r.closed, r.reopened)
+            return
+
+        if args.dataset == "crypto.repair.spot.trades":
+            from src.collectors.crypto.repair.spot.trades import repair_open_gaps
 
             r = repair_open_gaps(
                 service_root=service_root,

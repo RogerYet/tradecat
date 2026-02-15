@@ -262,7 +262,8 @@ def _update_watermark(meta_writer: IngestMetaWriter, rows: List[RawSpotTradeRow]
     by_symbol: Dict[str, tuple[int, int]] = {}
     for r in rows:
         last = by_symbol.get(r.symbol)
-        pair = (int(r.time), int(r.id))
+        # 注意：spot 的事实表 time 是 epoch(us)，但治理表 ingest_watermark.last_time 统一按 epoch(ms) 记（与 REST since/gap 同单位）
+        pair = (int(r.time // 1000), int(r.id))
         if last is None or pair > last:
             by_symbol[r.symbol] = pair
 

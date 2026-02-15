@@ -456,7 +456,8 @@ def _ingest_zip(
                 exchange=exchange,
                 dataset=dataset,
                 symbol=symbol,
-                last_time=int(tmp_max_time),
+                # spot 事实表 time=epoch(us)，但 watermark 统一按 epoch(ms) 写入
+                last_time=int(tmp_max_time) // 1000,
                 last_id=int(tmp_max_id),
             )
 

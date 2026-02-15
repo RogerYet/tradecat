@@ -307,6 +307,8 @@ class IngestZipStats:
     file_min_time: Optional[int]
     file_max_time: Optional[int]
     file_max_id: Optional[int]
+    chunks_decompressed: int = 0
+    chunks_recompressed: int = 0
 
 
 def _get_cm_trades_compress_after_ms(cur: psycopg.Cursor) -> Optional[int]:
@@ -356,6 +358,25 @@ def _is_cm_trades_window_compressed(cur: psycopg.Cursor, *, start_ms: int, end_m
         return None
 
 
+def _list_cm_trades_compressed_chunks(cur: psycopg.Cursor, *, start_ms: int, end_ms: int) -> list[str]:
+    """列出窗口内命中的 compressed chunks（返回 chunk 的 regclass 字符串）。"""
+
+    cur.execute(
+        """
+        SELECT format('%I.%I', c.chunk_schema, c.chunk_name)
+        FROM timescaledb_information.chunks c
+        WHERE c.hypertable_schema = 'crypto'
+          AND c.hypertable_name = 'raw_futures_cm_trades'
+          AND c.is_compressed = TRUE
+          AND c.range_start_integer < %(end)s
+          AND c.range_end_integer > %(start)s
+        ORDER BY c.range_start_integer
+        """,
+        {"start": int(start_ms), "end": int(end_ms)},
+    )
+    return [str(r[0]) for r in (cur.fetchall() or []) if r and r[0]]
+
+
 def _ingest_zip(
     conn: psycopg.Connection,
     *,
@@ -367,138 +388,185 @@ def _ingest_zip(
     meta_writer: IngestMetaWriter | None,
     dataset: str,
     core_registry: CoreRegistry,
+    force_update: bool,
 ) -> IngestZipStats:
     with conn.cursor() as cur:
-        venue_id, instrument_id = core_registry.resolve_venue_and_instrument_id(
-            venue_code=str(exchange).lower(),
-            symbol=str(symbol).upper(),
-            product="futures_cm",
-            cursor=cur,
-        )
+        chunks_to_recompress: list[str] = []
+        chunks_decompressed = 0
+        chunks_recompressed = 0
 
-        cur.execute(
-            """
-            CREATE TEMP TABLE IF NOT EXISTS tmp_cm_trades (
-              id BIGINT NOT NULL,
-              price NUMERIC(38, 12) NOT NULL,
-              qty NUMERIC(38, 12) NOT NULL,
-              quote_qty NUMERIC(38, 12) NOT NULL,
-              time BIGINT NOT NULL,
-              is_buyer_maker BOOLEAN NOT NULL
-            ) ON COMMIT DROP
-            """
-        )
-        cur.execute("TRUNCATE tmp_cm_trades")
-        _copy_zip_csv_into_tmp(cur, zip_path)
-
-        cur.execute(
-            "SELECT COUNT(*), MIN(time), MAX(time), MAX(id) FROM tmp_cm_trades WHERE time >= %s AND time < %s",
-            (int(start_ms), int(end_ms)),
-        )
-        tmp_count, tmp_min_time, tmp_max_time, tmp_max_id = cur.fetchone() or (0, None, None, None)
-
-        # ==================== 压缩窗口门禁（P0） ====================
-        compress_after_ms = _get_cm_trades_compress_after_ms(cur)
-        allow_update = False
-        if compress_after_ms is None:
-            logger.warning("[%s] 无法读取 compress_after，保守降级为 DO NOTHING: zip=%s", symbol, zip_path.name)
-        else:
-            now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-            if int(end_ms) < now_ms - int(compress_after_ms):
-                allow_update = False
+        if force_update:
+            chunks_to_recompress = _list_cm_trades_compressed_chunks(cur, start_ms=int(start_ms), end_ms=int(end_ms))
+            for ch in chunks_to_recompress:
+                cur.execute("SELECT decompress_chunk(%s::regclass)", (str(ch),))
+            chunks_decompressed = int(len(chunks_to_recompress))
+            if chunks_decompressed:
                 logger.warning(
-                    "[%s] 回填窗口已越过压缩线，降级为 DO NOTHING: end_ms=%d compress_after_ms=%d zip=%s",
+                    "[%s] force_update: 已解压 compressed chunks=%d（窗口 %d..%d）",
                     symbol,
+                    chunks_decompressed,
+                    int(start_ms),
                     int(end_ms),
-                    int(compress_after_ms),
-                    zip_path.name,
                 )
+
+        affected_rows = 0
+        tmp_count = 0
+        tmp_min_time: Optional[int] = None
+        tmp_max_time: Optional[int] = None
+        tmp_max_id: Optional[int] = None
+
+        try:
+            venue_id, instrument_id = core_registry.resolve_venue_and_instrument_id(
+                venue_code=str(exchange).lower(),
+                symbol=str(symbol).upper(),
+                product="futures_cm",
+                cursor=cur,
+            )
+
+            cur.execute(
+                """
+                CREATE TEMP TABLE IF NOT EXISTS tmp_cm_trades (
+                  id BIGINT NOT NULL,
+                  price NUMERIC(38, 12) NOT NULL,
+                  qty NUMERIC(38, 12) NOT NULL,
+                  quote_qty NUMERIC(38, 12) NOT NULL,
+                  time BIGINT NOT NULL,
+                  is_buyer_maker BOOLEAN NOT NULL
+                ) ON COMMIT DROP
+                """
+            )
+            cur.execute("TRUNCATE tmp_cm_trades")
+            _copy_zip_csv_into_tmp(cur, zip_path)
+
+            cur.execute(
+                "SELECT COUNT(*), MIN(time), MAX(time), MAX(id) FROM tmp_cm_trades WHERE time >= %s AND time < %s",
+                (int(start_ms), int(end_ms)),
+            )
+            tmp_count, tmp_min_time, tmp_max_time, tmp_max_id = cur.fetchone() or (0, None, None, None)
+
+            # ==================== 压缩窗口门禁（P0） ====================
+            allow_update = False
+            if force_update:
+                allow_update = True
+                logger.warning("[%s] force_update: 已显式启用 DO UPDATE（zip=%s）", symbol, zip_path.name)
             else:
-                compressed = _is_cm_trades_window_compressed(cur, start_ms=int(start_ms), end_ms=int(end_ms))
-                if compressed is None:
-                    allow_update = False
-                    logger.warning("[%s] 无法判定 chunk 压缩状态，保守降级为 DO NOTHING: zip=%s", symbol, zip_path.name)
-                elif compressed:
-                    allow_update = False
-                    logger.warning("[%s] 窗口命中已压缩 chunk，禁止 UPDATE（避免解压/重压）: zip=%s", symbol, zip_path.name)
+                compress_after_ms = _get_cm_trades_compress_after_ms(cur)
+                if compress_after_ms is None:
+                    logger.warning("[%s] 无法读取 compress_after，保守降级为 DO NOTHING: zip=%s", symbol, zip_path.name)
                 else:
-                    allow_update = True
+                    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                    if int(end_ms) < now_ms - int(compress_after_ms):
+                        logger.warning(
+                            "[%s] 回填窗口已越过压缩线，降级为 DO NOTHING: end_ms=%d compress_after_ms=%d zip=%s",
+                            symbol,
+                            int(end_ms),
+                            int(compress_after_ms),
+                            zip_path.name,
+                        )
+                    else:
+                        compressed = _is_cm_trades_window_compressed(cur, start_ms=int(start_ms), end_ms=int(end_ms))
+                        if compressed is None:
+                            logger.warning("[%s] 无法判定 chunk 压缩状态，保守降级为 DO NOTHING: zip=%s", symbol, zip_path.name)
+                        elif compressed:
+                            logger.warning("[%s] 窗口命中已压缩 chunk，禁止 UPDATE（避免解压/重压）: zip=%s", symbol, zip_path.name)
+                        else:
+                            allow_update = True
 
-        conflict_sql = (
-            """
-            DO UPDATE SET
-              price = EXCLUDED.price,
-              qty = EXCLUDED.qty,
-              quote_qty = EXCLUDED.quote_qty,
-              is_buyer_maker = EXCLUDED.is_buyer_maker
-            WHERE (crypto.raw_futures_cm_trades.price,
-                   crypto.raw_futures_cm_trades.qty,
-                   crypto.raw_futures_cm_trades.quote_qty,
-                   crypto.raw_futures_cm_trades.is_buyer_maker)
-              IS DISTINCT FROM
-                  (EXCLUDED.price,
-                   EXCLUDED.qty,
-                   EXCLUDED.quote_qty,
-                   EXCLUDED.is_buyer_maker)
-            """
-            if allow_update
-            else "DO NOTHING"
-        )
-
-        cur.execute(
-            """
-            INSERT INTO crypto.raw_futures_cm_trades (
-              venue_id, instrument_id, id, price, qty, quote_qty, time, is_buyer_maker
-            )
-            SELECT
-              %(venue_id)s,
-              %(instrument_id)s,
-              id,
-              price::DOUBLE PRECISION,
-              qty::DOUBLE PRECISION,
-              quote_qty::DOUBLE PRECISION,
-              time,
-              is_buyer_maker
-            FROM tmp_cm_trades
-            WHERE time >= %(start_ms)s AND time < %(end_ms)s
-            ON CONFLICT (venue_id, instrument_id, time, id)
-            """
-            + conflict_sql,
-            {
-                "venue_id": int(venue_id),
-                "instrument_id": int(instrument_id),
-                "start_ms": int(start_ms),
-                "end_ms": int(end_ms),
-            },
-        )
-        affected_rows = int(cur.rowcount or 0)
-
-        if meta_writer and tmp_max_time is not None and tmp_max_id is not None:
-            meta_writer.upsert_watermark(
-                exchange=exchange,
-                dataset=dataset,
-                symbol=symbol,
-                last_time=int(tmp_max_time),
-                last_id=int(tmp_max_id),
+            conflict_sql = (
+                """
+                DO UPDATE SET
+                  price = EXCLUDED.price,
+                  qty = EXCLUDED.qty,
+                  quote_qty = EXCLUDED.quote_qty,
+                  is_buyer_maker = EXCLUDED.is_buyer_maker
+                WHERE (crypto.raw_futures_cm_trades.price,
+                       crypto.raw_futures_cm_trades.qty,
+                       crypto.raw_futures_cm_trades.quote_qty,
+                       crypto.raw_futures_cm_trades.is_buyer_maker)
+                  IS DISTINCT FROM
+                      (EXCLUDED.price,
+                       EXCLUDED.qty,
+                       EXCLUDED.quote_qty,
+                       EXCLUDED.is_buyer_maker)
+                """
+                if allow_update
+                else "DO NOTHING"
             )
 
-        cur.execute(
-            """
-            SELECT COUNT(*)
-            FROM crypto.raw_futures_cm_trades
-            WHERE venue_id = %s AND instrument_id = %s AND time >= %s AND time < %s
-            """,
-            (int(venue_id), int(instrument_id), int(start_ms), int(end_ms)),
-        )
-        fact_count = int((cur.fetchone() or (0,))[0])
-        if tmp_count and fact_count < int(tmp_count):
-            logger.warning("[%s] 对账异常: file_rows=%d fact_rows=%d zip=%s", symbol, tmp_count, fact_count, zip_path.name)
+            cur.execute(
+                """
+                INSERT INTO crypto.raw_futures_cm_trades (
+                  venue_id, instrument_id, id, price, qty, quote_qty, time, is_buyer_maker
+                )
+                SELECT
+                  %(venue_id)s,
+                  %(instrument_id)s,
+                  id,
+                  price::DOUBLE PRECISION,
+                  qty::DOUBLE PRECISION,
+                  quote_qty::DOUBLE PRECISION,
+                  time,
+                  is_buyer_maker
+                FROM tmp_cm_trades
+                WHERE time >= %(start_ms)s AND time < %(end_ms)s
+                ON CONFLICT (venue_id, instrument_id, time, id)
+                """
+                + conflict_sql,
+                {
+                    "venue_id": int(venue_id),
+                    "instrument_id": int(instrument_id),
+                    "start_ms": int(start_ms),
+                    "end_ms": int(end_ms),
+                },
+            )
+            affected_rows = int(cur.rowcount or 0)
+
+            if meta_writer and tmp_max_time is not None and tmp_max_id is not None:
+                meta_writer.upsert_watermark(
+                    exchange=exchange,
+                    dataset=dataset,
+                    symbol=symbol,
+                    last_time=int(tmp_max_time),
+                    last_id=int(tmp_max_id),
+                )
+
+            cur.execute(
+                """
+                SELECT COUNT(*)
+                FROM crypto.raw_futures_cm_trades
+                WHERE venue_id = %s AND instrument_id = %s AND time >= %s AND time < %s
+                """,
+                (int(venue_id), int(instrument_id), int(start_ms), int(end_ms)),
+            )
+            fact_count = int((cur.fetchone() or (0,))[0])
+            if tmp_count and fact_count < int(tmp_count):
+                logger.warning("[%s] 对账异常: file_rows=%d fact_rows=%d zip=%s", symbol, tmp_count, fact_count, zip_path.name)
+        finally:
+            if force_update and chunks_to_recompress:
+                for ch in chunks_to_recompress:
+                    try:
+                        cur.execute("SELECT compress_chunk(%s::regclass)", (str(ch),))
+                        chunks_recompressed += 1
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("[%s] force_update: compress_chunk 失败（chunk=%s）: %s", symbol, ch, e)
+                if chunks_decompressed:
+                    logger.warning(
+                        "[%s] force_update: 已重压 chunks=%d/%d（窗口 %d..%d）",
+                        symbol,
+                        int(chunks_recompressed),
+                        int(chunks_decompressed),
+                        int(start_ms),
+                        int(end_ms),
+                    )
+
         return IngestZipStats(
-            affected_rows=affected_rows,
+            affected_rows=int(affected_rows),
             file_rows=int(tmp_count or 0),
             file_min_time=int(tmp_min_time) if tmp_min_time is not None else None,
             file_max_time=int(tmp_max_time) if tmp_max_time is not None else None,
             file_max_id=int(tmp_max_id) if tmp_max_id is not None else None,
+            chunks_decompressed=int(chunks_decompressed),
+            chunks_recompressed=int(chunks_recompressed),
         )
 
 
@@ -514,6 +582,7 @@ def download_and_ingest(
     write_db: bool,
     prefer_monthly: bool,
     allow_no_checksum: bool = False,
+    force_update: bool = False,
 ) -> dict[str, str]:
     if not symbols:
         raise ValueError("symbols 不能为空")
@@ -564,6 +633,7 @@ def download_and_ingest(
                 "allow_no_checksum": bool(allow_no_checksum),
                 "write_files": bool(write_files),
                 "write_db": bool(write_db),
+                "force_update": bool(force_update),
                 "plan_items": len(plan),
                 "plan_daily": sum(1 for it in plan if it.kind == "daily"),
                 "plan_monthly": sum(1 for it in plan if it.kind == "monthly"),
@@ -574,6 +644,8 @@ def download_and_ingest(
                 "ingest_failed": 0,
                 "file_rows_total": 0,
                 "affected_rows_total": 0,
+                "chunks_decompressed_total": 0,
+                "chunks_recompressed_total": 0,
             }
 
             status = "success"
@@ -690,6 +762,7 @@ def download_and_ingest(
                                     meta_writer=meta_writer,
                                     dataset=dataset,
                                     core_registry=core_registry,
+                                    force_update=bool(force_update),
                                 )
                             except Exception as e:  # noqa: BLE001
                                 status = "partial"
@@ -707,6 +780,12 @@ def download_and_ingest(
                             run_meta["ingest_ok"] = int(run_meta["ingest_ok"]) + 1
                             run_meta["file_rows_total"] = int(run_meta["file_rows_total"]) + int(stats.file_rows)
                             run_meta["affected_rows_total"] = int(run_meta["affected_rows_total"]) + int(stats.affected_rows)
+                            run_meta["chunks_decompressed_total"] = int(run_meta["chunks_decompressed_total"]) + int(
+                                stats.chunks_decompressed
+                            )
+                            run_meta["chunks_recompressed_total"] = int(run_meta["chunks_recompressed_total"]) + int(
+                                stats.chunks_recompressed
+                            )
                             logger.info(
                                 "[%s] %s 入库完成: affected=%d file_rows=%d",
                                 sym,
@@ -866,6 +945,7 @@ def download_and_ingest(
                                     meta_writer=meta_writer,
                                     dataset=dataset,
                                     core_registry=core_registry,
+                                    force_update=bool(force_update),
                                 )
                             except Exception as e:  # noqa: BLE001
                                 if import_writer:
@@ -881,6 +961,12 @@ def download_and_ingest(
                             run_meta["ingest_ok"] = int(run_meta["ingest_ok"]) + 1
                             run_meta["file_rows_total"] = int(run_meta["file_rows_total"]) + int(stats.file_rows)
                             run_meta["affected_rows_total"] = int(run_meta["affected_rows_total"]) + int(stats.affected_rows)
+                            run_meta["chunks_decompressed_total"] = int(run_meta["chunks_decompressed_total"]) + int(
+                                stats.chunks_decompressed
+                            )
+                            run_meta["chunks_recompressed_total"] = int(run_meta["chunks_recompressed_total"]) + int(
+                                stats.chunks_recompressed
+                            )
                             logger.info(
                                 "[%s] %s 月度入库完成: affected=%d file_rows=%d",
                                 sym,

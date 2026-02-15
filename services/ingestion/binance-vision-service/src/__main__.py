@@ -104,6 +104,13 @@ def main() -> None:
     backfill.add_argument("--no-db", action="store_true", help="不入库（只落盘 ZIP/CSV）")
     backfill.add_argument("--no-prefer-monthly", action="store_true", help="禁用月度 ZIP 优先（强制按日回填）")
     backfill.add_argument("--allow-no-checksum", action="store_true", help="允许缺失 CHECKSUM 时继续（会标记为 unverified）")
+    backfill.add_argument(
+        "--force-update",
+        action="store_true",
+        help=(
+            "仅适用于 trades：允许在压缩窗口外执行 ON CONFLICT DO UPDATE；若窗口命中已压缩 chunk，会先 decompress_chunk 并在结束后 compress_chunk（离线使用）"
+        ),
+    )
 
     repair = sub.add_parser("repair", help="运行缺口修复（消费 crypto.ingest_gaps）")
     repair.add_argument(
@@ -215,6 +222,13 @@ def main() -> None:
         except ValueError as e:
             raise ValueError("start-date/end-date 格式必须是 YYYY-MM-DD") from e
 
+        if args.force_update and args.dataset not in {
+            "crypto.data_download.futures.um.trades",
+            "crypto.data_download.futures.cm.trades",
+            "crypto.data_download.spot.trades",
+        }:
+            raise ValueError("--force-update 仅适用于 *trades* 数据集")
+
         if args.dataset == "crypto.data_download.futures.um.trades":
             from src.collectors.crypto.data_download.futures.um.trades import download_and_ingest
 
@@ -229,6 +243,7 @@ def main() -> None:
                 write_db=write_db,
                 prefer_monthly=not bool(args.no_prefer_monthly),
                 allow_no_checksum=bool(args.allow_no_checksum),
+                force_update=bool(args.force_update),
             )
             return
 
@@ -297,6 +312,7 @@ def main() -> None:
                 write_db=write_db,
                 prefer_monthly=not bool(args.no_prefer_monthly),
                 allow_no_checksum=bool(args.allow_no_checksum),
+                force_update=bool(args.force_update),
             )
             return
 
@@ -314,8 +330,12 @@ def main() -> None:
                 write_db=write_db,
                 prefer_monthly=not bool(args.no_prefer_monthly),
                 allow_no_checksum=bool(args.allow_no_checksum),
+                force_update=bool(args.force_update),
             )
             return
+
+        if args.force_update:
+            raise ValueError("--force-update 仅适用于 *trades* 数据集")
 
         raise RuntimeError(f"未知 dataset: {args.dataset}")
 

@@ -955,6 +955,7 @@ def download_and_ingest(
                                     meta_writer=meta_writer,
                                     dataset=dataset,
                                     core_registry=core_registry,
+                                    force_update=bool(force_update),
                                 )
                             except Exception as e:  # noqa: BLE001
                                 if import_writer:

@@ -333,6 +333,29 @@ def _get_cm_trades_compress_after_ms(cur: psycopg.Cursor) -> Optional[int]:
     return None
 
 
+def _is_cm_trades_window_compressed(cur: psycopg.Cursor, *, start_ms: int, end_ms: int) -> Optional[bool]:
+    """判断该窗口是否命中已压缩 chunk（True=存在压缩 chunk，False=都未压缩，None=无法判定）。"""
+
+    try:
+        cur.execute(
+            """
+            SELECT 1
+            FROM timescaledb_information.chunks c
+            WHERE c.hypertable_schema = 'crypto'
+              AND c.hypertable_name = 'raw_futures_cm_trades'
+              AND c.is_compressed = TRUE
+              AND c.range_start_integer < %(end)s
+              AND c.range_end_integer > %(start)s
+            LIMIT 1
+            """,
+            {"start": int(start_ms), "end": int(end_ms)},
+        )
+        return cur.fetchone() is not None
+    except Exception:
+        logger.debug("读取 CM trades chunk 压缩状态失败", exc_info=True)
+        return None
+
+
 def _ingest_zip(
     conn: psycopg.Connection,
     *,
@@ -380,7 +403,6 @@ def _ingest_zip(
         if compress_after_ms is None:
             logger.warning("[%s] 无法读取 compress_after，保守降级为 DO NOTHING: zip=%s", symbol, zip_path.name)
         else:
-            allow_update = True
             now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
             if int(end_ms) < now_ms - int(compress_after_ms):
                 allow_update = False
@@ -391,6 +413,16 @@ def _ingest_zip(
                     int(compress_after_ms),
                     zip_path.name,
                 )
+            else:
+                compressed = _is_cm_trades_window_compressed(cur, start_ms=int(start_ms), end_ms=int(end_ms))
+                if compressed is None:
+                    allow_update = False
+                    logger.warning("[%s] 无法判定 chunk 压缩状态，保守降级为 DO NOTHING: zip=%s", symbol, zip_path.name)
+                elif compressed:
+                    allow_update = False
+                    logger.warning("[%s] 窗口命中已压缩 chunk，禁止 UPDATE（避免解压/重压）: zip=%s", symbol, zip_path.name)
+                else:
+                    allow_update = True
 
         conflict_sql = (
             """

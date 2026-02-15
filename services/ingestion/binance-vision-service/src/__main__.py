@@ -89,6 +89,9 @@ def main() -> None:
         required=True,
         choices=[
             "crypto.data_download.futures.um.trades",
+            "crypto.data_download.futures.um.bookTicker",
+            "crypto.data_download.futures.um.bookDepth",
+            "crypto.data_download.futures.um.metrics",
             "crypto.data_download.futures.cm.trades",
             "crypto.data_download.spot.trades",
         ],
@@ -214,6 +217,57 @@ def main() -> None:
 
         if args.dataset == "crypto.data_download.futures.um.trades":
             from src.collectors.crypto.data_download.futures.um.trades import download_and_ingest
+
+            download_and_ingest(
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                service_root=service_root,
+                database_url=cfg.database_url,
+                binance_data_base=cfg.binance_data_base,
+                write_files=write_files,
+                write_db=write_db,
+                prefer_monthly=not bool(args.no_prefer_monthly),
+                allow_no_checksum=bool(args.allow_no_checksum),
+            )
+            return
+
+        if args.dataset == "crypto.data_download.futures.um.bookTicker":
+            from src.collectors.crypto.data_download.futures.um.bookTicker import download_and_ingest
+
+            download_and_ingest(
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                service_root=service_root,
+                database_url=cfg.database_url,
+                binance_data_base=cfg.binance_data_base,
+                write_files=write_files,
+                write_db=write_db,
+                prefer_monthly=not bool(args.no_prefer_monthly),
+                allow_no_checksum=bool(args.allow_no_checksum),
+            )
+            return
+
+        if args.dataset == "crypto.data_download.futures.um.bookDepth":
+            from src.collectors.crypto.data_download.futures.um.bookDepth import download_and_ingest
+
+            download_and_ingest(
+                symbols=symbols,
+                start_date=start_date,
+                end_date=end_date,
+                service_root=service_root,
+                database_url=cfg.database_url,
+                binance_data_base=cfg.binance_data_base,
+                write_files=write_files,
+                write_db=write_db,
+                prefer_monthly=not bool(args.no_prefer_monthly),
+                allow_no_checksum=bool(args.allow_no_checksum),
+            )
+            return
+
+        if args.dataset == "crypto.data_download.futures.um.metrics":
+            from src.collectors.crypto.data_download.futures.um.metrics import download_and_ingest
 
             download_and_ingest(
                 symbols=symbols,

@@ -75,8 +75,8 @@ UM trades header：
 
 ### 4.1 维度键（替代 TEXT 作为主键）
 
-- `venue_id`：交易所/场所（例：binance）  
-  - 来源：`core.venue(venue_code='binance')`  
+- `venue_id`：交易所/场所（例：`binance_futures_um` / `binance_spot`）  
+  - 来源：`core.venue(venue_code='<exchange>_<product>')`（例：`binance_futures_um`）  
 - `instrument_id`：统一金融工具 ID（例：BTCUSDT 永续合约对应 1 个 instrument）  
   - 来源：`core.instrument` + `core.symbol_map(venue_id, symbol->instrument_id)`  
 

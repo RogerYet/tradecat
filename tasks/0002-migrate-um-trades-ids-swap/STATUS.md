@@ -43,7 +43,7 @@
 
 - Command: `SELECT venue_id, venue_code FROM core.venue;`
 - Observed (excerpt):
-  - `venue_id=1 venue_code=binance`
+  - `venue_id=1 venue_code=binance`（后续已迁移为 `binance_futures_um`，见 Evidence 16）
 - Command: `SELECT symbol, instrument_id, effective_from FROM core.symbol_map;`
 - Observed (excerpt):
   - `BTCUSDT -> instrument_id=1 (effective_from=1970-01-01 UTC)`
@@ -134,3 +134,14 @@
 - Command: `SELECT job_id, hypertable_name FROM timescaledb_information.jobs WHERE hypertable_schema='crypto' AND hypertable_name LIKE 'raw_futures_um_trades%';`
 - Observed (excerpt):
   - `job_id=1048 hypertable_name=raw_futures_um_trades`
+
+### Evidence 16: futures_um 的 venue_code 已统一到 product 键空间
+
+> 说明：采集侧已统一使用 `venue_code=binance_futures_um`（避免与 spot/cm 同名 symbol 撞车）；运行库需同步迁移。
+
+- Command: `PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d market_data -c "SELECT venue_id, venue_code FROM core.venue WHERE venue_id=1;"`
+- Observed (excerpt):
+  - `venue_id=1 venue_code=binance_futures_um`
+- Command: `PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d market_data -c "SELECT COUNT(*) FROM core.venue WHERE venue_code='binance';"`
+- Observed (excerpt):
+  - `count=0`

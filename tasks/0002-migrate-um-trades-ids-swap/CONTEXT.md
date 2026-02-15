@@ -62,9 +62,8 @@
 3) TimescaleDB 扩展可用（hypertable/压缩函数存在）  
    - Verify: `PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d market_data -c "SELECT extname FROM pg_extension WHERE extname IN ('timescaledb');"`
 
-4) 旧表中的 exchange 值可直接视为 `core.venue.venue_code`（例如 `binance`）  
+4) 旧表中的 exchange 值是 base 交易所代码（例如 `binance`）；写入 ids 时必须把 product 折叠进 `core.venue.venue_code`（UM= `binance_futures_um`）  
    - Verify: `PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d market_data -c "SELECT exchange, COUNT(*) FROM crypto.raw_futures_um_trades GROUP BY 1 ORDER BY 2 DESC LIMIT 10;"`
 
 5) 迁移窗口允许暂停采集写入（避免 copy 时数据漂移）  
    - Verify: 运维确认 + `pg_stat_activity` 无写入会话
-

@@ -397,23 +397,13 @@ def _ingest_zip(
         # - 正常回填：压缩窗口之外（或命中已压缩 chunk）一律 fail-closed 降级 DO NOTHING
         # - 若需要覆盖官方更正（老数据），必须显式执行 decompress_chunk -> DO UPDATE -> compress_chunk
         # - 该路径代价高，仅允许 operator 显式开启（force_update=True）
+        planned_chunks: list[str] = []
         chunks_to_recompress: list[str] = []
         chunks_decompressed = 0
         chunks_recompressed = 0
 
         if force_update:
-            chunks_to_recompress = _list_spot_trades_compressed_chunks(cur, start_us=int(start_us), end_us=int(end_us))
-            for ch in chunks_to_recompress:
-                cur.execute("SELECT decompress_chunk(%s::regclass)", (str(ch),))
-            chunks_decompressed = int(len(chunks_to_recompress))
-            if chunks_decompressed:
-                logger.warning(
-                    "[%s] force_update: 已解压 compressed chunks=%d（窗口 %d..%d）",
-                    symbol,
-                    chunks_decompressed,
-                    int(start_us),
-                    int(end_us),
-                )
+            planned_chunks = _list_spot_trades_compressed_chunks(cur, start_us=int(start_us), end_us=int(end_us))
 
         affected_rows = 0
         tmp_count = 0
@@ -422,6 +412,20 @@ def _ingest_zip(
         tmp_max_id: Optional[int] = None
 
         try:
+            if force_update and planned_chunks:
+                for ch in planned_chunks:
+                    cur.execute("SELECT decompress_chunk(%s::regclass)", (str(ch),))
+                    chunks_to_recompress.append(str(ch))
+                chunks_decompressed = int(len(chunks_to_recompress))
+                if chunks_decompressed:
+                    logger.warning(
+                        "[%s] force_update: 已解压 compressed chunks=%d（窗口 %d..%d）",
+                        symbol,
+                        chunks_decompressed,
+                        int(start_us),
+                        int(end_us),
+                    )
+
             venue_id, instrument_id = core_registry.resolve_venue_and_instrument_id(
                 venue_code=str(exchange).lower(),
                 symbol=str(symbol).upper(),

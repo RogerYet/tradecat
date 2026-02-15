@@ -391,23 +391,13 @@ def _ingest_zip(
     force_update: bool,
 ) -> IngestZipStats:
     with conn.cursor() as cur:
+        planned_chunks: list[str] = []
         chunks_to_recompress: list[str] = []
         chunks_decompressed = 0
         chunks_recompressed = 0
 
         if force_update:
-            chunks_to_recompress = _list_cm_trades_compressed_chunks(cur, start_ms=int(start_ms), end_ms=int(end_ms))
-            for ch in chunks_to_recompress:
-                cur.execute("SELECT decompress_chunk(%s::regclass)", (str(ch),))
-            chunks_decompressed = int(len(chunks_to_recompress))
-            if chunks_decompressed:
-                logger.warning(
-                    "[%s] force_update: 已解压 compressed chunks=%d（窗口 %d..%d）",
-                    symbol,
-                    chunks_decompressed,
-                    int(start_ms),
-                    int(end_ms),
-                )
+            planned_chunks = _list_cm_trades_compressed_chunks(cur, start_ms=int(start_ms), end_ms=int(end_ms))
 
         affected_rows = 0
         tmp_count = 0
@@ -416,6 +406,20 @@ def _ingest_zip(
         tmp_max_id: Optional[int] = None
 
         try:
+            if force_update and planned_chunks:
+                for ch in planned_chunks:
+                    cur.execute("SELECT decompress_chunk(%s::regclass)", (str(ch),))
+                    chunks_to_recompress.append(str(ch))
+                chunks_decompressed = int(len(chunks_to_recompress))
+                if chunks_decompressed:
+                    logger.warning(
+                        "[%s] force_update: 已解压 compressed chunks=%d（窗口 %d..%d）",
+                        symbol,
+                        chunks_decompressed,
+                        int(start_ms),
+                        int(end_ms),
+                    )
+
             venue_id, instrument_id = core_registry.resolve_venue_and_instrument_id(
                 venue_code=str(exchange).lower(),
                 symbol=str(symbol).upper(),

@@ -106,6 +106,16 @@
 - `docs/analysis/INDEX.md`（docs/analysis 单点真相入口）
 - `docs/analysis/crypto_raw_trades_hardening_runbook.md`（加固 runbook：约束硬化/权限隔离/验收 SQL）
 
+### 4.3 离线导入（local-only，本地已有 ZIP）
+
+适用场景：机器不联网/不想下载，只把官方 ZIP 放到 `data_download/`，然后直接入库。
+
+- 入口：`python3 -m src backfill ... --local-only --workers N`
+- 约束：当前仅 `crypto.data_download.futures.um.trades` 支持 `--local-only/--workers`（其他 trades 先拒绝，避免误以为并发/离线已支持）。
+- 幂等：以 `storage.files(rel_path)` + 事实表主键去重，可安全重跑；跳过已入库文件时仍会补做必要的压缩（防爆盘）。
+- 可靠性：默认 `synchronous_commit=on`；如你明确要极致速度，可设置环境变量 `TC_UNSAFE_FAST_INGEST=1`（崩溃时可能丢失最近一小段已提交事务）。
+- 长任务：不要用 `&` 后台跑（会被清理）；建议用 `tmux` 或保持前台会话。
+
 ## 5. 编码规范（面向可维护）
 
 - 对人可见文本（日志/文档/注释）用中文；代码结构/标识符用简洁英文。

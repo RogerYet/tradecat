@@ -599,6 +599,8 @@ def download_and_ingest(
     prefer_monthly: bool,
     allow_no_checksum: bool = False,
     force_update: bool = False,
+    local_only: bool = False,
+    workers: int = 1,
 ) -> dict[str, str]:
     if not symbols:
         raise ValueError("symbols 不能为空")
@@ -606,6 +608,11 @@ def download_and_ingest(
         raise ValueError("start_date 不能大于 end_date")
     if write_db and not database_url:
         raise ValueError("write_db=True 但 DATABASE_URL 为空")
+
+    if bool(local_only):
+        raise ValueError("spot.trades 暂不支持 --local-only（仅 um.trades 已实现离线本地导入）")
+    if int(workers) != 1:
+        raise ValueError("spot.trades 暂不支持 --workers（仅 um.trades 已实现并发本地导入）")
 
     dataset = "spot.trades"
     conn = connect(database_url) if write_db else None

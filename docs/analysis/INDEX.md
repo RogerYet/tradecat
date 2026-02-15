@@ -6,6 +6,7 @@
 
 - `docs/analysis/crypto_trades_fact_table_pro_design.md`：逐笔事实表（ids+DOUBLE+integer hypertable）全局设计，含冲突裁决与窗口合同。
 - `docs/analysis/binance_vision_um_trades_mature_playbook.md`：UM trades 从 0→1 落地手册（迁移/验收/运维）。
+- `docs/analysis/binance_vision_um_trades_local_only_import.md`：UM trades 离线本地导入（local-only，多 worker，并发 + 自动压缩）。
 - `docs/analysis/binance_vision_um_trades_maturity_audit.md`：UM trades 成熟化审计快照（现状 vs 目标）。
 - `docs/analysis/binance_vision_db_physical_design.md`：crypto/core/storage 物理层说明（表职责、主键、时间语义）。
 - `docs/analysis/binance_vision_field_dictionary.md`：字段字典（对齐 Vision CSV 的字段语义与类型）。
@@ -30,4 +31,3 @@
 ## 4) 执行任务索引
 
 - `tasks/INDEX.md`：任务总索引（按 ID/优先级/目标）。
-

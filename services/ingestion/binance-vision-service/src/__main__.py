@@ -105,6 +105,12 @@ def main() -> None:
     backfill.add_argument("--no-prefer-monthly", action="store_true", help="禁用月度 ZIP 优先（强制按日回填）")
     backfill.add_argument("--allow-no-checksum", action="store_true", help="允许缺失 CHECKSUM 时继续（会标记为 unverified）")
     backfill.add_argument(
+        "--local-only",
+        action="store_true",
+        help="离线模式：只 ingest 本地 data_download 下的 ZIP，不下载、不请求 CHECKSUM",
+    )
+    backfill.add_argument("--workers", type=int, default=1, help="并发 worker 数（仅适用于 *trades*）")
+    backfill.add_argument(
         "--force-update",
         action="store_true",
         help=(
@@ -228,6 +234,14 @@ def main() -> None:
             "crypto.data_download.spot.trades",
         }:
             raise ValueError("--force-update 仅适用于 *trades* 数据集")
+        if args.local_only and args.dataset not in {
+            "crypto.data_download.futures.um.trades",
+            "crypto.data_download.futures.cm.trades",
+            "crypto.data_download.spot.trades",
+        }:
+            raise ValueError("--local-only 仅适用于 *trades* 数据集")
+        if int(args.workers) < 1:
+            raise ValueError("--workers 必须 >= 1")
 
         if args.dataset == "crypto.data_download.futures.um.trades":
             from src.collectors.crypto.data_download.futures.um.trades import download_and_ingest
@@ -244,6 +258,8 @@ def main() -> None:
                 prefer_monthly=not bool(args.no_prefer_monthly),
                 allow_no_checksum=bool(args.allow_no_checksum),
                 force_update=bool(args.force_update),
+                local_only=bool(args.local_only),
+                workers=int(args.workers),
             )
             return
 
@@ -313,6 +329,8 @@ def main() -> None:
                 prefer_monthly=not bool(args.no_prefer_monthly),
                 allow_no_checksum=bool(args.allow_no_checksum),
                 force_update=bool(args.force_update),
+                local_only=bool(args.local_only),
+                workers=int(args.workers),
             )
             return
 
@@ -331,11 +349,15 @@ def main() -> None:
                 prefer_monthly=not bool(args.no_prefer_monthly),
                 allow_no_checksum=bool(args.allow_no_checksum),
                 force_update=bool(args.force_update),
+                local_only=bool(args.local_only),
+                workers=int(args.workers),
             )
             return
 
         if args.force_update:
             raise ValueError("--force-update 仅适用于 *trades* 数据集")
+        if args.local_only:
+            raise ValueError("--local-only 仅适用于 *trades* 数据集")
 
         raise RuntimeError(f"未知 dataset: {args.dataset}")
 

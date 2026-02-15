@@ -24,6 +24,8 @@ import calendar
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 import logging
+import multiprocessing
+import os
 from pathlib import Path
 from typing import Optional
 import zipfile
@@ -166,8 +168,14 @@ def _copy_zip_csv_into_tmp(cur: psycopg.Cursor, zip_path: Path) -> None:
         for name in csv_members:
             with zf.open(name) as fp:
                 with cur.copy(
-                    "COPY tmp_um_trades (id, price, qty, quote_qty, time, is_buyer_maker) FROM STDIN WITH (FORMAT csv, HEADER true)"
+                    "COPY tmp_um_trades (id, price, qty, quote_qty, time, is_buyer_maker) FROM STDIN WITH (FORMAT csv)"
                 ) as copy:
+                    first = fp.readline()
+                    if first:
+                        first_field = first.split(b",", 1)[0].strip().lower()
+                        has_header = first_field in {b"id", b"tradeid"}
+                        if not has_header:
+                            copy.write(first)
                     while True:
                         chunk = fp.read(1024 * 1024)
                         if not chunk:
@@ -300,6 +308,304 @@ class IngestZipStats:
     chunks_recompressed: int = 0
 
 
+def _verify_local_zip(dst: Path) -> VerifiedZipResult:
+    if not dst.exists():
+        return VerifiedZipResult(ok=False, status_code=None, error=f"本地文件不存在: {dst}", checksum_sha256=None, verified=False)
+    if not _zip_has_csv(dst):
+        return VerifiedZipResult(ok=False, status_code=None, error=f"本地 ZIP 损坏（无 CSV）: {dst}", checksum_sha256=None, verified=False)
+    local_sha = sha256_file(dst)
+    return VerifiedZipResult(ok=True, status_code=200, error=None, checksum_sha256=local_sha, verified=False)
+
+
+def _apply_fast_ingest_session_settings(cur: psycopg.Cursor) -> None:
+    # 默认“更稳”：保证崩溃/断电时已提交数据尽量不丢。
+    # 若你明确要极致速度，可设置环境变量 `TC_UNSAFE_FAST_INGEST=1`（可能在崩溃时丢失最近一小段已提交事务）。
+    if str(os.environ.get("TC_UNSAFE_FAST_INGEST", "")).strip().lower() in {"1", "true", "yes"}:
+        cur.execute("SET synchronous_commit = off")
+    cur.execute("SET wal_compression = on")
+    cur.execute("SET timescaledb.max_open_chunks_per_insert = 64")
+    cur.execute("SET work_mem = '64MB'")
+
+
+def _should_skip_local_ingest(cur: psycopg.Cursor, *, rel_path: str) -> bool:
+    cur.execute(
+        """
+        SELECT extracted_at, row_count
+        FROM storage.files
+        WHERE rel_path = %(rel_path)s
+        """,
+        {"rel_path": str(rel_path)},
+    )
+    row = cur.fetchone()
+    if not row:
+        return False
+    extracted_at, row_count = row[0], row[1]
+    return extracted_at is not None and row_count is not None
+
+
+def _partition_local_tasks_by_size(tasks: list[_PlanItem], *, service_root: Path, workers: int) -> list[list[_PlanItem]]:
+    if workers <= 1:
+        return [list(tasks)]
+
+    weighted: list[tuple[int, _PlanItem]] = []
+    for it in tasks:
+        if it.kind == "daily":
+            rel = _relpath_daily_zip(it.symbol, it.start_date)
+        else:
+            rel = _relpath_monthly_zip(it.symbol, it.period)
+        p = service_root / rel
+        size = int(p.stat().st_size) if p.exists() else 0
+        weighted.append((size, it))
+
+    weighted.sort(key=lambda x: x[0], reverse=True)
+    buckets: list[list[_PlanItem]] = [[] for _ in range(int(workers))]
+    bucket_sizes = [0 for _ in range(int(workers))]
+    for size, it in weighted:
+        idx = min(range(int(workers)), key=lambda i: bucket_sizes[i])
+        buckets[idx].append(it)
+        bucket_sizes[idx] += int(size)
+    return [b for b in buckets if b]
+
+
+def _ingest_local_plan_items_worker(
+    *,
+    worker_id: int,
+    tasks: list[_PlanItem],
+    service_root: Path,
+    database_url: str,
+    force_update: bool,
+) -> dict[str, object]:
+    dataset = "futures.um.trades"
+
+    if not tasks:
+        return {"worker_id": int(worker_id), "status": "success", "planned": 0, "ingested": 0, "skipped": 0, "failed": 0}
+
+    conn = connect(database_url)
+    try:
+        with conn.cursor() as cur:
+            _apply_fast_ingest_session_settings(cur)
+        conn.commit()
+
+        compress_after_ms: Optional[int] = None
+        try:
+            with conn.cursor() as cur:
+                compress_after_ms = _get_um_trades_compress_after_ms(cur)
+        except Exception:
+            compress_after_ms = None
+        if compress_after_ms is None:
+            logger.warning("local-only: 读取 compress_after 失败，将禁用自动压缩（依赖后续手工/策略 job）")
+
+        core_registry = CoreRegistry(conn)
+        meta_writer = IngestMetaWriter(conn)
+        import_writer = ImportMetaWriter(conn)
+        storage_writer = StorageFilesWriter(conn)
+
+        batch_id = import_writer.start_batch(
+            ImportBatchSpec(
+                source="binance_vision",
+                note=f"binance_vision um trades local-only (worker={worker_id})",
+                meta={"dataset": dataset, "worker_id": int(worker_id), "planned": len(tasks)},
+            )
+        )
+
+        run_id = meta_writer.start_run(IngestRunSpec(exchange="binance", dataset=dataset, mode="backfill"))
+
+        run_meta = {
+            "dataset": dataset,
+            "mode": "backfill",
+            "local_only": True,
+            "worker_id": int(worker_id),
+            "planned": int(len(tasks)),
+            "ingest_ok": 0,
+            "ingest_failed": 0,
+            "skip_existing": 0,
+            "file_rows_total": 0,
+            "affected_rows_total": 0,
+            "chunks_decompressed_total": 0,
+            "chunks_recompressed_total": 0,
+            "chunks_compressed_total": 0,
+            "chunks_compress_failed_total": 0,
+        }
+
+        status = "success"
+        error_message = None
+
+        for item in tasks:
+            sym = item.symbol.upper()
+
+            if item.kind == "daily":
+                rel = _relpath_daily_zip(sym, item.start_date)
+                vision_rel = _vision_relpath_daily_zip(sym, item.start_date)
+            elif item.kind == "monthly":
+                rel = _relpath_monthly_zip(sym, item.period)
+                vision_rel = _vision_relpath_monthly_zip(sym, item.period)
+            else:
+                raise RuntimeError(f"未知 plan item kind: {item.kind}")
+
+            dst = service_root / rel
+            r = _verify_local_zip(dst)
+            if not r.ok:
+                logger.warning("[%s] local-only: 跳过（文件不可用）: %s", sym, r.error or dst)
+                run_meta["ingest_failed"] = int(run_meta["ingest_failed"]) + 1
+                status = "partial"
+                storage_writer.get_or_create_file_id(
+                    StorageFileSpec(
+                        rel_path=vision_rel,
+                        content_kind="zip",
+                        source="binance_vision",
+                        market_root="crypto",
+                        market="futures",
+                        product="um",
+                        frequency=item.kind,
+                        dataset="trades",
+                        symbol=sym,
+                        interval=None,
+                        file_date=item.start_date if item.kind == "daily" else None,
+                        file_month=date.fromisoformat(f"{item.period}-01") if item.kind == "monthly" else None,
+                        size_bytes=dst.stat().st_size if dst.exists() else None,
+                        checksum_sha256=None,
+                        downloaded_at=None,
+                        extracted_at=None,
+                        meta={"local_only": True, "local_path": str(dst), "error": r.error},
+                    )
+                )
+                import_writer.insert_import_error(
+                    batch_id=batch_id,
+                    file_id=None,
+                    error_type="local_missing" if not dst.exists() else "local_zip_invalid",
+                    message=r.error or "local zip invalid",
+                    meta={"vision_rel_path": vision_rel, "local_path": str(dst)},
+                )
+                continue
+
+            start_ms, end_ms = _date_range_ms_utc(item.start_date, item.end_date)
+
+            with conn.cursor() as cur:
+                if _should_skip_local_ingest(cur, rel_path=vision_rel):
+                    logger.info("[%s] local-only: 已入库，跳过: %s", sym, vision_rel)
+                    run_meta["skip_existing"] = int(run_meta["skip_existing"]) + 1
+
+                    # 已入库但未压缩的场景：允许重跑时补做压缩，避免后续爆盘。
+                    if compress_after_ms is not None:
+                        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                        if int(end_ms) < int(now_ms) - int(compress_after_ms):
+                            try:
+                                chunks = _list_um_trades_uncompressed_chunks(cur, start_ms=int(start_ms), end_ms=int(end_ms))
+                                for ch in chunks:
+                                    try:
+                                        cur.execute("SELECT compress_chunk(%s::regclass)", (str(ch),))
+                                        run_meta["chunks_compressed_total"] = int(run_meta["chunks_compressed_total"]) + 1
+                                    except Exception as e:  # noqa: BLE001
+                                        run_meta["chunks_compress_failed_total"] = int(run_meta["chunks_compress_failed_total"]) + 1
+                                        logger.warning("[%s] local-only: compress_chunk 失败（chunk=%s）: %s", sym, ch, e)
+                                conn.commit()
+                            except Exception as e:  # noqa: BLE001
+                                logger.warning("[%s] local-only: 自动压缩失败（skip path）: %s", sym, e)
+                    continue
+
+            try:
+                stats = _ingest_zip(
+                    conn,
+                    zip_path=dst,
+                    symbol=sym,
+                    exchange="binance",
+                    start_ms=start_ms,
+                    end_ms=end_ms,
+                    meta_writer=meta_writer,
+                    dataset=dataset,
+                    core_registry=core_registry,
+                    force_update=bool(force_update),
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("[%s] local-only: 入库失败: %s (zip=%s)", sym, e, dst.name, exc_info=True)
+                run_meta["ingest_failed"] = int(run_meta["ingest_failed"]) + 1
+                status = "partial"
+                import_writer.insert_import_error(
+                    batch_id=batch_id,
+                    file_id=None,
+                    error_type="ingest_failed",
+                    message=str(e),
+                    meta={"vision_rel_path": vision_rel, "local_path": str(dst)},
+                )
+                continue
+
+            conn.commit()
+            run_meta["ingest_ok"] = int(run_meta["ingest_ok"]) + 1
+            run_meta["file_rows_total"] = int(run_meta["file_rows_total"]) + int(stats.file_rows)
+            run_meta["affected_rows_total"] = int(run_meta["affected_rows_total"]) + int(stats.affected_rows)
+            run_meta["chunks_decompressed_total"] = int(run_meta["chunks_decompressed_total"]) + int(stats.chunks_decompressed)
+            run_meta["chunks_recompressed_total"] = int(run_meta["chunks_recompressed_total"]) + int(stats.chunks_recompressed)
+
+            storage_writer.get_or_create_file_id(
+                StorageFileSpec(
+                    rel_path=vision_rel,
+                    content_kind="zip",
+                    source="binance_vision",
+                    market_root="crypto",
+                    market="futures",
+                    product="um",
+                    frequency=item.kind,
+                    dataset="trades",
+                    symbol=sym,
+                    interval=None,
+                    file_date=item.start_date if item.kind == "daily" else None,
+                    file_month=date.fromisoformat(f"{item.period}-01") if item.kind == "monthly" else None,
+                    size_bytes=dst.stat().st_size if dst.exists() else None,
+                    checksum_sha256=r.checksum_sha256,
+                    downloaded_at=None,
+                    extracted_at=datetime.now(tz=timezone.utc),
+                    row_count=stats.file_rows,
+                    min_event_ts=(
+                        datetime.fromtimestamp(stats.file_min_time / 1000.0, tz=timezone.utc)
+                        if stats.file_min_time is not None
+                        else None
+                    ),
+                    max_event_ts=(
+                        datetime.fromtimestamp(stats.file_max_time / 1000.0, tz=timezone.utc)
+                        if stats.file_max_time is not None
+                        else None
+                    ),
+                    meta={"local_only": True, "verified": False, "local_path": str(dst)},
+                )
+            )
+
+            # ==================== 自动压缩（防爆盘） ====================
+            # 说明：全历史导入若不及时压缩，rowstore+PK 索引会快速膨胀到 TB 级。
+            if compress_after_ms is not None:
+                now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                if int(end_ms) < int(now_ms) - int(compress_after_ms):
+                    try:
+                        with conn.cursor() as cur:
+                            chunks = _list_um_trades_uncompressed_chunks(cur, start_ms=int(start_ms), end_ms=int(end_ms))
+                            for ch in chunks:
+                                try:
+                                    cur.execute("SELECT compress_chunk(%s::regclass)", (str(ch),))
+                                    run_meta["chunks_compressed_total"] = int(run_meta["chunks_compressed_total"]) + 1
+                                except Exception as e:  # noqa: BLE001
+                                    run_meta["chunks_compress_failed_total"] = int(run_meta["chunks_compress_failed_total"]) + 1
+                                    logger.warning("[%s] local-only: compress_chunk 失败（chunk=%s）: %s", sym, ch, e)
+                        conn.commit()
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("[%s] local-only: 自动压缩失败: %s", sym, e)
+
+        meta_writer.finish_run(run_id, status=status, error_message=error_message, meta=run_meta)
+        import_writer.finish_batch(batch_id, status=status, meta=run_meta)
+
+        return {
+            "worker_id": int(worker_id),
+            "status": status,
+            "planned": int(len(tasks)),
+            "ingested": int(run_meta["ingest_ok"]),
+            "skipped": int(run_meta["skip_existing"]),
+            "failed": int(run_meta["ingest_failed"]),
+        }
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def _get_um_trades_compress_after_ms(cur: psycopg.Cursor) -> Optional[int]:
     """读取 crypto.raw_futures_um_trades 的 compress_after（ms）。
 
@@ -358,11 +664,30 @@ def _list_um_trades_compressed_chunks(cur: psycopg.Cursor, *, start_ms: int, end
 
     cur.execute(
         """
-        SELECT format('%I.%I', c.chunk_schema, c.chunk_name)
+        SELECT format('%%I.%%I', c.chunk_schema, c.chunk_name)
         FROM timescaledb_information.chunks c
         WHERE c.hypertable_schema = 'crypto'
           AND c.hypertable_name = 'raw_futures_um_trades'
           AND c.is_compressed = TRUE
+          AND c.range_start_integer < %(end)s
+          AND c.range_end_integer > %(start)s
+        ORDER BY c.range_start_integer
+        """,
+        {"start": int(start_ms), "end": int(end_ms)},
+    )
+    return [str(r[0]) for r in (cur.fetchall() or []) if r and r[0]]
+
+
+def _list_um_trades_uncompressed_chunks(cur: psycopg.Cursor, *, start_ms: int, end_ms: int) -> list[str]:
+    """列出窗口内命中的 uncompressed chunks（返回 chunk 的 regclass 字符串）。"""
+
+    cur.execute(
+        """
+        SELECT format('%%I.%%I', c.chunk_schema, c.chunk_name)
+        FROM timescaledb_information.chunks c
+        WHERE c.hypertable_schema = 'crypto'
+          AND c.hypertable_name = 'raw_futures_um_trades'
+          AND c.is_compressed = FALSE
           AND c.range_start_integer < %(end)s
           AND c.range_end_integer > %(start)s
         ORDER BY c.range_start_integer
@@ -430,9 +755,9 @@ def _ingest_zip(
                 """
                 CREATE TEMP TABLE IF NOT EXISTS tmp_um_trades (
                   id BIGINT NOT NULL,
-                  price NUMERIC(38, 12) NOT NULL,
-                  qty NUMERIC(38, 12) NOT NULL,
-                  quote_qty NUMERIC(38, 12) NOT NULL,
+                  price DOUBLE PRECISION NOT NULL,
+                  qty DOUBLE PRECISION NOT NULL,
+                  quote_qty DOUBLE PRECISION NOT NULL,
                   time BIGINT NOT NULL,
                   is_buyer_maker BOOLEAN NOT NULL
                 ) ON COMMIT DROP
@@ -591,6 +916,8 @@ def download_and_ingest(
     prefer_monthly: bool,
     allow_no_checksum: bool = False,
     force_update: bool = False,
+    local_only: bool = False,
+    workers: int = 1,
 ) -> dict[str, str]:
     if not symbols:
         raise ValueError("symbols 不能为空")
@@ -600,6 +927,67 @@ def download_and_ingest(
         raise ValueError("write_db=True 但 DATABASE_URL 为空")
 
     dataset = "futures.um.trades"
+    if int(workers) < 1:
+        raise ValueError("workers 必须 >= 1")
+
+    if bool(local_only):
+        if not bool(write_db):
+            raise ValueError("local-only 模式必须 write_db=True")
+
+        tasks: list[_PlanItem] = []
+        for sym in symbols:
+            tasks.extend(_build_plan(sym, start_date, end_date, prefer_monthly=prefer_monthly))
+
+        if not tasks:
+            return {str(sym).upper(): "success" for sym in symbols}
+
+        w = min(int(workers), len(tasks))
+        if w <= 1:
+            r = _ingest_local_plan_items_worker(
+                worker_id=1,
+                tasks=tasks,
+                service_root=service_root,
+                database_url=database_url,
+                force_update=bool(force_update),
+            )
+            status = str(r.get("status") or "failed")
+            return {str(sym).upper(): status for sym in symbols}
+
+        buckets = _partition_local_tasks_by_size(tasks, service_root=service_root, workers=w)
+        logger.warning("local-only 并发导入: workers=%d tasks=%d buckets=%d", w, len(tasks), len(buckets))
+
+        ctx = multiprocessing.get_context("fork")
+        q: multiprocessing.Queue = ctx.Queue()
+        procs: list[multiprocessing.Process] = []
+
+        def _entry(worker_id: int, bucket: list[_PlanItem]) -> None:
+            try:
+                out = _ingest_local_plan_items_worker(
+                    worker_id=int(worker_id),
+                    tasks=list(bucket),
+                    service_root=service_root,
+                    database_url=database_url,
+                    force_update=bool(force_update),
+                )
+            except Exception as e:  # noqa: BLE001
+                out = {"worker_id": int(worker_id), "status": "failed", "error": str(e), "planned": len(bucket)}
+            q.put(out)
+
+        for i, bucket in enumerate(buckets):
+            p = ctx.Process(target=_entry, args=(i + 1, bucket))
+            p.start()
+            procs.append(p)
+
+        results: list[dict[str, object]] = []
+        for _ in procs:
+            results.append(q.get())
+        for p in procs:
+            p.join()
+
+        logger.warning("local-only worker 结果: %s", results)
+        overall_status = "success" if all(r.get("status") == "success" for r in results) else "partial"
+        return {str(sym).upper(): overall_status for sym in symbols}
+
     conn = connect(database_url) if write_db else None
     core_registry = CoreRegistry(conn) if conn is not None else None
     import_writer = ImportMetaWriter(conn) if conn is not None else None

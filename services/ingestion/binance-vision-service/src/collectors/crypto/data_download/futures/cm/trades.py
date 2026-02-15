@@ -166,8 +166,14 @@ def _copy_zip_csv_into_tmp(cur: psycopg.Cursor, zip_path: Path) -> None:
         for name in csv_members:
             with zf.open(name) as fp:
                 with cur.copy(
-                    "COPY tmp_cm_trades (id, price, qty, quote_qty, time, is_buyer_maker) FROM STDIN WITH (FORMAT csv, HEADER true)"
+                    "COPY tmp_cm_trades (id, price, qty, quote_qty, time, is_buyer_maker) FROM STDIN WITH (FORMAT csv)"
                 ) as copy:
+                    first = fp.readline()
+                    if first:
+                        first_field = first.split(b",", 1)[0].strip().lower()
+                        has_header = first_field in {b"id", b"tradeid"}
+                        if not has_header:
+                            copy.write(first)
                     while True:
                         chunk = fp.read(1024 * 1024)
                         if not chunk:
@@ -431,9 +437,9 @@ def _ingest_zip(
                 """
                 CREATE TEMP TABLE IF NOT EXISTS tmp_cm_trades (
                   id BIGINT NOT NULL,
-                  price NUMERIC(38, 12) NOT NULL,
-                  qty NUMERIC(38, 12) NOT NULL,
-                  quote_qty NUMERIC(38, 12) NOT NULL,
+                  price DOUBLE PRECISION NOT NULL,
+                  qty DOUBLE PRECISION NOT NULL,
+                  quote_qty DOUBLE PRECISION NOT NULL,
                   time BIGINT NOT NULL,
                   is_buyer_maker BOOLEAN NOT NULL
                 ) ON COMMIT DROP
@@ -587,6 +593,8 @@ def download_and_ingest(
     prefer_monthly: bool,
     allow_no_checksum: bool = False,
     force_update: bool = False,
+    local_only: bool = False,
+    workers: int = 1,
 ) -> dict[str, str]:
     if not symbols:
         raise ValueError("symbols 不能为空")
@@ -594,6 +602,11 @@ def download_and_ingest(
         raise ValueError("start_date 不能大于 end_date")
     if write_db and not database_url:
         raise ValueError("write_db=True 但 DATABASE_URL 为空")
+
+    if bool(local_only):
+        raise ValueError("futures.cm.trades 暂不支持 --local-only（仅 um.trades 已实现离线本地导入）")
+    if int(workers) != 1:
+        raise ValueError("futures.cm.trades 暂不支持 --workers（仅 um.trades 已实现并发本地导入）")
 
     dataset = "futures.cm.trades"
     conn = connect(database_url) if write_db else None

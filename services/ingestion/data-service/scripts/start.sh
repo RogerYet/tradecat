@@ -44,13 +44,28 @@ safe_load_env() {
             local val="${BASH_REMATCH[2]}"
             val="${val#\"}" && val="${val%\"}"
             val="${val#\'}" && val="${val%\'}"
-            export "$key=$val"
+            # 不覆盖外部已显式设置的环境变量（便于两库共存/临时覆盖）
+            if [[ -z "${!key+x}" ]]; then
+                export "$key=$val"
+            fi
         fi
     done < "$file"
 }
 
-# 加载全局配置 → 服务配置（后者覆盖）
+# 记录外部是否已显式指定 DATABASE_URL（用于两库共存时避免被 config/.env 覆盖）
+DATABASE_URL_PRESET=0
+if [[ -n "${DATABASE_URL:-}" ]]; then
+    DATABASE_URL_PRESET=1
+fi
+
+# 加载全局配置（不覆盖外部环境）
 safe_load_env "$PROJECT_ROOT/config/.env"
+
+# data-service 专用 DB：若外部未显式指定 DATABASE_URL，则优先使用 DATA_SERVICE_DATABASE_URL
+if [[ "$DATABASE_URL_PRESET" = "0" ]] && [[ -n "${DATA_SERVICE_DATABASE_URL:-}" ]]; then
+    export DATABASE_URL="$DATA_SERVICE_DATABASE_URL"
+fi
+
 # 配置已统一到 config/.env
 if [ -z "${BINANCE_PING_URL:-}" ]; then
     if [ -n "${BINANCE_REST_BASE_MAINNET:-}" ]; then
@@ -448,6 +463,23 @@ cmd_stop() {
 
 # ==================== 主命令 ====================
 cmd_start() {
+    # 启动前打印目标 DB（避免两库共存时写错库）
+    if [ -n "${DATABASE_URL:-}" ]; then
+        python3 - <<'PY' || true
+import os
+from urllib.parse import urlparse
+
+u = os.environ.get("DATABASE_URL", "")
+p = urlparse(u)
+host = p.hostname or ""
+port = p.port or ""
+db = (p.path or "").lstrip("/")
+schema = os.environ.get("KLINE_DB_SCHEMA", "market_data")
+print(f"→ data-service 目标库: {host}:{port}/{db} schema={schema}")
+PY
+    else
+        echo "⚠️  data-service 未配置 DATABASE_URL（将无法写库）"
+    fi
     # 默认就是守护模式
     cmd_daemon
 }

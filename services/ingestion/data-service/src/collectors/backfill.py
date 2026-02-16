@@ -100,9 +100,10 @@ class GapScanner:
         """扫描期货指标缺口"""
         min_count = int(EXPECTED_5M_PER_DAY * threshold)
 
-        sql = """
+        table = f"{self._ts.schema}.binance_futures_metrics_5m"
+        sql = f"""
             SELECT symbol, DATE(create_time) AS d, COUNT(*) AS c
-            FROM market_data.binance_futures_metrics_5m
+            FROM {table}
             WHERE symbol = ANY(%s) AND create_time >= %s AND create_time < %s
             GROUP BY symbol, DATE(create_time)
         """

@@ -11,8 +11,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # 核心服务（services/ 目录，按分层组织）
-# 注意：历史采集服务 data-service 已归档到 artifacts/services-archived/（不再默认启用）
-# 采集侧 binance-vision-service 目前以 CLI 运行（不在默认启动链路），需要时可手动执行：./scripts/init.sh binance-vision-service
+# 注意：采集层服务默认不在核心启动链路（避免采集任务“长跑”污染开发机）
+# - 低频/分时（1m K线、5m 指标）: ./scripts/init.sh data-service
+# - 高频/HFT 原子事实（trades/book*）: ./scripts/init.sh binance-vision-service
 CORE_SERVICES=(trading-service telegram-service ai-service signal-service)
 
 # 可选服务（默认不在核心启动链）

@@ -41,9 +41,10 @@ def get_client(exchange: str = "binance") -> ccxt.Exchange:
 # ========== 币种管理配置 ==========
 # 使用共享模块
 import sys
-from pathlib import Path
 
-_libs_path = str(Path(__file__).resolve().parents[5] / "libs")
+from config import PROJECT_ROOT
+
+_libs_path = str(PROJECT_ROOT / "libs")
 if _libs_path not in sys.path:
     sys.path.insert(0, _libs_path)
 from common.symbols import get_configured_symbols

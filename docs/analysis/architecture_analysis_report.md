@@ -215,7 +215,7 @@ graph TD
 | consumption | **telegram-service** | `services/consumption/telegram-service` | `src/__main__.py` | Bot交互、排行榜展示、信号推送UI | SQLite、SignalPublisher | Telegram |
 | consumption | **api-service** | `services/consumption/api-service` | `src/__main__.py` | REST API（CoinGlass V4 风格） | TimescaleDB、SQLite | HTTP |
 
-> 注：历史采集服务 `services/ingestion/data-service/` 已归档到 `artifacts/services-archived/ingestion/data-service/`（仅保留参考，不进入默认启动/校验链路）。
+> 注：`services/ingestion/data-service/` 为低频/分时兼容链路（1m K线、5m 指标），默认不进入顶层启动/校验链路，需要时手动运行。
 
 > 说明：历史 `services-preview/*` 概念已从本仓库目录移除；如需预览服务，请在独立仓库/分支维护。
 

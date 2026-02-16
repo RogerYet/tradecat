@@ -206,7 +206,7 @@ sqlite3 libs/database/services/telegram-service/market_data.db
 | telegram-service | consumption | `services/consumption/telegram-service/` | Bot 交互、卡片渲染、订阅管理 | `src/main.py` |
 | api-service | consumption | `services/consumption/api-service/` | REST API（只读查询） | `src/__main__.py` |
 
-> 历史服务归档：`artifacts/services-archived/ingestion/data-service/`（旧版采集服务，仅保留参考，不进入默认启动链路）。
+> 低频/分时采集服务：`services/ingestion/data-service/`（兼容链路，不进入默认启动链路，需要时手动运行）。
 
 ### 4.3 模块边界
 
@@ -328,7 +328,8 @@ tradecat/
 │
 ├── services/                       # 服务分层（采集/计算/消费）
 │   ├── ingestion/                  # 采集层：写 TimescaleDB
-│   │   └── binance-vision-service/ # Binance Vision Raw 对齐采集
+│   │   ├── binance-vision-service/ # Binance Vision Raw 对齐采集
+│   │   └── data-service/           # 低频/分时采集（1m/5m，兼容链路，非默认启动）
 │   ├── compute/                    # 计算层：读 PG / 写 SQLite
 │   │   ├── trading-service/        # 指标计算（写入 SQLite）
 │   │   ├── signal-service/         # 信号检测（规则引擎）
@@ -364,9 +365,7 @@ tradecat/
 │   └── SECURITY.md                 # 安全政策
 │
 ├── artifacts/                      # 构建/测试产物
-│   ├── services-archived/          # 历史服务归档区（不进入默认启动/校验链路）
-│   │   └── ingestion/
-│   │       └── data-service/       # 旧版采集服务（已归档）
+│   ├── services-archived/          # 历史服务归档区（按需使用）
 │   ├── analysis/                   # 分析产物
 │   │   └── signal_correlation/     # 信号相关性分析输出
 │   ├── coverage/                   # 覆盖率数据
@@ -759,3 +758,4 @@ sqlite3 libs/database/services/telegram-service/market_data.db
 - 2026-02-14: 归档 `services/ingestion/data-service` → `artifacts/services-archived/ingestion/data-service`，避免污染现行采集链路。
 - 2026-02-12: 新增综合市场数据库 DDL（`core/storage/crypto`），并把 Binance Vision 的“基元物理层 vs 可派生层”按脚本/表集合分层（均在 `crypto` 根内；表名使用 `raw_*`/`agg_*` 前缀；`raw_option_eoh_summary` 按约束保留在物理层）。
 - 2026-02-15: 新增 `docs/analysis/INDEX.md` 与 `docs/analysis/crypto_raw_trades_hardening_runbook.md`，并把入口写入 `AGENTS.md` 与采集服务契约文档。
+- 2026-02-16: 恢复 `services/ingestion/data-service/`（低频/分时兼容链路），并同步更新文档/脚本中的历史路径引用。

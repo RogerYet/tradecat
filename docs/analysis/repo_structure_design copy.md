@@ -84,7 +84,7 @@ tradecat/
 | 处理 | `services/compute/trading-service/`, `services/compute/signal-service/` | 读 raw_* → 计算指标/信号 → 写 derived_* |
 | 消费 | `services/consumption/telegram-service/`, `services/consumption/api-service/` | 读 derived_* → 展示/推送（允许写缓存） |
 
-> 注：历史采集服务 `services/ingestion/data-service/` 已归档到 `artifacts/services-archived/ingestion/data-service/`（仅保留参考，不进入默认启动链路）。
+> 注：`services/ingestion/data-service/` 为低频/分时兼容链路（1m K线、5m 指标），默认不进入顶层启动链路，需要时手动运行。
 
 > 注：`services/compute/ai-service/` 更像“消费侧分析”（读派生层做解释/摘要），除非它会反向生成可复用特征写回派生层。
 

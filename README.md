@@ -181,7 +181,7 @@ vim config/.env
 ```
 
 > 说明：顶层 `./scripts/start.sh` 管理 `ai-service`、`signal-service`、`telegram-service`、`trading-service`（ai-service 为子模块，仅做就绪检查，无独立进程）。  
-> 历史采集服务 data-service 已归档：`artifacts/services-archived/ingestion/data-service/`（不再默认启用）。  
+> 低频/分时采集服务 data-service：`services/ingestion/data-service/`（兼容链路，不在默认启动链路）。  
 > 可选服务需手动启动：`cd services/consumption/api-service && ./scripts/start.sh start`（REST API，默认端口 8088）。
 
 ### ⚙️ 配置（必须）
@@ -220,7 +220,7 @@ vim config/.env
 
 ```bash
 # 安装依赖
-artifacts/services-archived/ingestion/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
+services/ingestion/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
 
 # 默认下载 Main4 数据集（BTC/ETH/BNB/SOL，415MB）
 python scripts/download_hf_data.py
@@ -854,7 +854,12 @@ tradecat/
 ├── 📂 services/                    # 服务分层（采集/计算/消费）
 │   │
 │   ├── 📂 ingestion/                   # 采集层：写 TimescaleDB
-│   │   └── 📂 binance-vision-service/  # Binance Vision Raw 对齐采集服务
+│   │   ├── 📂 data-service/            # 低频/分时采集服务（1m K线、5m 指标，兼容链路，非默认启用）
+│   │   │   ├── 📂 src/
+│   │   │   ├── 📂 scripts/
+│   │   │   └── requirements.txt
+│   │   │
+│   │   └── 📂 binance-vision-service/  # Binance Vision Raw 对齐采集服务（高频原子事实）
 │   │       ├── 📂 src/
 │   │       │   ├── 📂 collectors/      # 采集器卡片（严格对齐 Binance Vision）
 │   │       │   ├── 📂 writers/         # 写入器（CSV/DB）
@@ -887,9 +892,7 @@ tradecat/
 │       └── utils/                  # 工具函数
 │
 ├── 📂 artifacts/                   # 构建/测试产物
-│   ├── 📂 services-archived/        # 历史服务归档区（不进入默认启动/校验链路）
-│   │   └── 📂 ingestion/
-│   │       └── 📂 data-service/     # 旧版采集服务（已归档）
+│   ├── 📂 services-archived/        # 历史服务归档区（按需使用）
 │   ├── 📂 coverage/                # 覆盖率数据
 │   │   └── .coverage
 │   ├── 📂 dist/                    # 构建输出
@@ -958,8 +961,8 @@ tradecat/
 <summary><strong>点击展开👉 单服务管理</strong></summary>
 
 ```bash
-# data-service（已归档，支持守护模式）
-cd artifacts/services-archived/ingestion/data-service
+# data-service（低频/分时兼容链路，支持守护模式）
+cd services/ingestion/data-service
 ./scripts/start.sh start    # 启动（含守护）
 ./scripts/start.sh stop     # 停止
 ./scripts/start.sh status   # 状态
@@ -1006,9 +1009,9 @@ cd services/consumption/api-service
 
 ```bash
 # data-service 日志
-tail -f artifacts/services-archived/ingestion/data-service/logs/backfill.log
-tail -f artifacts/services-archived/ingestion/data-service/logs/metrics.log
-tail -f artifacts/services-archived/ingestion/data-service/logs/ws.log
+tail -f services/ingestion/data-service/logs/backfill.log
+tail -f services/ingestion/data-service/logs/metrics.log
+tail -f services/ingestion/data-service/logs/ws.log
 
 # trading-service 日志
 tail -f services/compute/trading-service/logs/service.log

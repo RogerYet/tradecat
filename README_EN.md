@@ -196,7 +196,7 @@ vim config/.env
 ```
 
 > Note: top-level `./scripts/start.sh` manages `ai-service`, `signal-service`, `telegram-service`, `trading-service` (ai-service is a sub-module; readiness check only, no standalone process).  
-> Archived ingestion service: `artifacts/services-archived/ingestion/data-service/` (kept for reference; not enabled by default).  
+> Legacy ingestion service (low-frequency 1m/5m): `services/ingestion/data-service/` (not enabled by default).  
 > Optional service manual start: `cd services/consumption/api-service && ./scripts/start.sh start` (REST API, default port 8088).
 
 ### ⚙️ Configuration (required)
@@ -229,7 +229,7 @@ Download pre-built datasets from HuggingFace to skip lengthy historical backfill
 
 ```bash
 # Install dependencies
-artifacts/services-archived/ingestion/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
+services/ingestion/data-service/.venv/bin/pip install pandas psycopg2-binary huggingface_hub
 
 # Download Main4 dataset by default (BTC/ETH/BNB/SOL, 415MB)
 python scripts/download_hf_data.py
@@ -862,6 +862,7 @@ tradecat/
 ├── 📂 services/                    # Layered services (Ingestion/Compute/Consumption)
 │   │
 │   ├── 📂 ingestion/               # Ingestion layer: write TimescaleDB
+│   │   ├── 📂 data-service/            # Legacy low-frequency ingestion (1m candles, 5m metrics; opt-in)
 │   │   └── 📂 binance-vision-service/  # Binance Vision raw-aligned ingestion
 │   │
 │   ├── 📂 compute/                 # Compute layer: read PG / write SQLite
@@ -887,9 +888,7 @@ tradecat/
 │       └── utils/                  # Utility functions
 │
 ├── 📂 artifacts/                   # Build/test artifacts
-│   ├── 📂 services-archived/        # Archived services (excluded from default start/verify)
-│   │   └── 📂 ingestion/
-│   │       └── 📂 data-service/     # Legacy ingestion service (archived)
+│   ├── 📂 services-archived/        # Archived services (opt-in)
 │   ├── 📂 coverage/                # Coverage data
 │   │   └── .coverage
 │   ├── 📂 dist/                    # Build outputs
@@ -959,8 +958,8 @@ tradecat/
 <summary><strong>Expand👉 Single Service Management</strong></summary>
 
 ```bash
-# data-service (archived; supports daemon mode)
-cd artifacts/services-archived/ingestion/data-service
+# data-service (legacy low-frequency pipeline; supports daemon mode)
+cd services/ingestion/data-service
 ./scripts/start.sh start    # Start (with daemon)
 ./scripts/start.sh stop     # Stop
 ./scripts/start.sh status   # Status
@@ -1007,9 +1006,9 @@ cd services/consumption/api-service
 
 ```bash
 # data-service logs
-tail -f artifacts/services-archived/ingestion/data-service/logs/backfill.log
-tail -f artifacts/services-archived/ingestion/data-service/logs/metrics.log
-tail -f artifacts/services-archived/ingestion/data-service/logs/ws.log
+tail -f services/ingestion/data-service/logs/backfill.log
+tail -f services/ingestion/data-service/logs/metrics.log
+tail -f services/ingestion/data-service/logs/ws.log
 
 # trading-service logs
 tail -f services/compute/trading-service/logs/service.log

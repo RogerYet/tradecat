@@ -7,7 +7,8 @@
 ```
 services/
 ├── ingestion/                       # 采集层：只做拉取/标准化/写入原始事实
-│   └── binance-vision-service/      # Binance Vision Raw 对齐采集（ccxtpro + Vision ZIP 回填）
+│   ├── binance-vision-service/      # Binance Vision Raw 对齐采集（ccxtpro + Vision ZIP 回填）
+│   └── data-service/                # 低频/分时采集（1m K线、5m 指标，兼容链路，非默认启动）
 ├── compute/                          # 处理层：只读采集层事实，计算指标/信号并落派生结果
 │   ├── trading-service/             # 指标计算（写入 SQLite 指标库供消费侧展示）
 │   ├── signal-service/              # 信号检测（只读指标库，写入自身冷却/历史）
@@ -16,8 +17,8 @@ services/
     ├── telegram-service/            # Telegram Bot（展示与推送）
     └── api-service/                 # REST API（只读查询）
 ```
-
-> 历史服务归档：`artifacts/services-archived/ingestion/data-service/`（不再参与默认启动/校验链路）。
+ 
+> 说明：`data-service` 为兼容链路，不在顶层 `./scripts/start.sh` 默认启动/校验链路内；需要时请手动进入目录运行其 `./scripts/start.sh`。
 
 ## 依赖边界（硬规则）
 

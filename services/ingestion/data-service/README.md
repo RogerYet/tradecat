@@ -1,7 +1,7 @@
 # Data Service
 
-> ⚠️ **已归档（2026-02-14）**：本服务从 `services/ingestion/data-service` 迁移至 `artifacts/services-archived/ingestion/data-service`，仅用于历史参考，避免污染当前采集链路。  
-> 新采集链路请优先使用：`services/ingestion/binance-vision-service`。
+> ⚠️ **兼容链路（非默认启动）**：本服务用于低频/分时数据（1m K线、5m 指标）采集与历史补齐。  
+> 高频/HFT 原子事实（trades/bookTicker/bookDepth 等）请优先使用：`services/ingestion/binance-vision-service`。
 
 Binance 期货市场数据采集服务，提供 1m K线和 5m 期货指标的实时采集与历史补齐。
 
@@ -39,13 +39,13 @@ src/
 ### 环境要求
 
 - Python >= 3.10
-- TimescaleDB (端口 5433)
+- TimescaleDB（以 `DATABASE_URL` 为准；旧链路常见端口 5433）
 - 代理服务（访问 Binance）
 
 ### 安装
 
 ```bash
-cd artifacts/services-archived/ingestion/data-service
+cd services/ingestion/data-service
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -61,8 +61,8 @@ vim config/.env
 ### 启动
 
 ```bash
-# 进入已归档服务目录后启动（本服务自身的守护脚本）
-cd artifacts/services-archived/ingestion/data-service
+# 进入服务目录后启动（本服务自身的守护脚本）
+cd services/ingestion/data-service
 ./scripts/start.sh start
 ./scripts/start.sh status
 ./scripts/start.sh stop
@@ -80,6 +80,7 @@ PYTHONPATH=src python3 -m collectors.backfill --all  # 补齐
 | 变量 | 默认值 | 说明 |
 |:---|:---|:---|
 | `DATABASE_URL` | - | TimescaleDB 连接串 |
+| `DATA_SERVICE_DATABASE_URL` | - | data-service 专用 TimescaleDB（优先于 `DATABASE_URL`，用于两库共存） |
 | `HTTP_PROXY` | - | HTTP 代理地址 |
 | `RATE_LIMIT_PER_MINUTE` | 1800 | API 限流 |
 | `MAX_CONCURRENT` | 5 | 最大并发数 |
@@ -90,6 +91,8 @@ PYTHONPATH=src python3 -m collectors.backfill --all  # 补齐
 
 ```bash
 DATABASE_URL=postgresql://user:password@localhost:5432/market_data
+# 两库共存时可选：data-service 专用库（优先于 DATABASE_URL）
+DATA_SERVICE_DATABASE_URL=postgresql://user:password@localhost:5433/market_data
 HTTP_PROXY=http://127.0.0.1:7890
 RATE_LIMIT_PER_MINUTE=1800
 MAX_CONCURRENT=5

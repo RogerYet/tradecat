@@ -7,9 +7,27 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# 服务根目录
-SERVICE_ROOT = Path(__file__).resolve().parents[1]  # artifacts/services-archived/ingestion/data-service
-PROJECT_ROOT = SERVICE_ROOT.parents[3]              # tradecat/
+# ==================== 路径定位（避免目录迁移导致 parents[...] 失效） ====================
+SERVICE_ROOT = Path(__file__).resolve().parents[1]  # services/ingestion/data-service
+
+
+def _find_project_root(start: Path) -> Path:
+    """向上查找仓库根目录（以 config/.env.example 与 services/ 作为锚点）。"""
+    current = start
+    for _ in range(12):
+        if (current / "config" / ".env.example").exists() and (current / "services").is_dir():
+            return current
+        if current.parent == current:
+            break
+        current = current.parent
+    # 兜底：兼容 services/ingestion/<svc> 布局
+    return start.parents[2]
+
+
+PROJECT_ROOT = _find_project_root(SERVICE_ROOT)
+
+# 外部是否已显式设置 DATABASE_URL（用于两库共存时，允许命令行临时覆盖）
+_DATABASE_URL_PRESET = bool(os.environ.get("DATABASE_URL"))
 
 # 加载 config/.env
 _env_file = PROJECT_ROOT / "config" / ".env"
@@ -31,8 +49,10 @@ def _int_env(name: str, default: int) -> int:
 @dataclass
 class Settings:
     """服务配置"""
-    database_url: str = field(default_factory=lambda: os.getenv(
-        "DATABASE_URL", ""
+    database_url: str = field(default_factory=lambda: (
+        os.getenv("DATABASE_URL", "")
+        if _DATABASE_URL_PRESET
+        else (os.getenv("DATA_SERVICE_DATABASE_URL") or os.getenv("DATABASE_URL", ""))
     ))
     http_proxy: Optional[str] = field(default_factory=lambda: os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY"))
     binance_fapi_base: str = field(default_factory=lambda: (

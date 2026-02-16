@@ -361,10 +361,9 @@ check_data_dirs() {
         fi
     done
 
-    # 归档提示（不做强校验，避免“污染”主链路）
-    if [ -d "$ROOT/artifacts/services-archived/ingestion/data-service" ]; then
-        info "data-service 已归档：artifacts/services-archived/ingestion/data-service（不参与默认检查）"
-    fi
+    # 可选：低频/分时采集（不进入核心启动链路，但允许单独运行）
+    local ds_dir
+    ds_dir="$(find_service_dir "data-service")" && info "data-service 可选服务：$ds_dir（不参与默认检查）"
     
     # SQLite 数据库
     local sqlite_db="$ROOT/libs/database/services/telegram-service/market_data.db"

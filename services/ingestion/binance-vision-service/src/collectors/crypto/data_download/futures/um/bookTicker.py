@@ -28,6 +28,7 @@ from src.writers.ingest_meta import IngestMetaWriter, IngestRunSpec
 from src.writers.import_meta import ImportBatchSpec, ImportMetaWriter
 from src.writers.pg import connect
 from src.writers.storage_files import StorageFileSpec, StorageFilesWriter
+from src.writers.core_registry import CoreRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -102,13 +103,20 @@ def _ingest_zip(
     *,
     zip_path: Path,
     symbol: str,
-    file_id: int,
     start_ms: int,
     end_ms: int,
 ) -> IngestZipStats:
     sym = str(symbol).upper()
 
     with conn.cursor() as cur:
+        core = CoreRegistry(conn)
+        venue_id, instrument_id = core.resolve_venue_and_instrument_id(
+            venue_code="binance",
+            symbol=sym,
+            product="futures_um",
+            cursor=cur,
+        )
+
         cur.execute(
             """
             CREATE TEMP TABLE IF NOT EXISTS tmp_um_book_ticker (
@@ -135,35 +143,31 @@ def _ingest_zip(
         cur.execute(
             """
             INSERT INTO crypto.raw_futures_um_book_ticker (
-              file_id,
-              symbol,
+              venue_id,
+              instrument_id,
               update_id,
               best_bid_price,
               best_bid_qty,
               best_ask_price,
               best_ask_qty,
               transaction_time,
-              transaction_time_ts,
-              event_time,
-              event_time_ts
+              event_time
             )
             SELECT
-              %(file_id)s,
-              %(symbol)s,
+              %(venue_id)s,
+              %(instrument_id)s,
               update_id,
-              best_bid_price,
-              best_bid_qty,
-              best_ask_price,
-              best_ask_qty,
+              best_bid_price::double precision,
+              best_bid_qty::double precision,
+              best_ask_price::double precision,
+              best_ask_qty::double precision,
               transaction_time,
-              CASE WHEN transaction_time IS NULL THEN NULL ELSE to_timestamp(transaction_time / 1000.0) END,
-              event_time,
-              to_timestamp(event_time / 1000.0)
+              event_time
             FROM tmp_um_book_ticker
             WHERE event_time >= %(start_ms)s AND event_time < %(end_ms)s
-            ON CONFLICT (symbol, event_time_ts, update_id) DO NOTHING
+            ON CONFLICT (venue_id, instrument_id, event_time, update_id) DO NOTHING
             """,
-            {"file_id": int(file_id), "symbol": sym, "start_ms": int(start_ms), "end_ms": int(end_ms)},
+            {"venue_id": int(venue_id), "instrument_id": int(instrument_id), "start_ms": int(start_ms), "end_ms": int(end_ms)},
         )
         affected_rows = int(cur.rowcount or 0)
 
@@ -171,11 +175,12 @@ def _ingest_zip(
             """
             SELECT COUNT(*)
             FROM crypto.raw_futures_um_book_ticker
-            WHERE symbol = %s
-              AND event_time_ts >= to_timestamp(%s / 1000.0)
-              AND event_time_ts <  to_timestamp(%s / 1000.0)
+            WHERE venue_id = %s
+              AND instrument_id = %s
+              AND event_time >= %s
+              AND event_time <  %s
             """,
-            (sym, int(start_ms), int(end_ms)),
+            (int(venue_id), int(instrument_id), int(start_ms), int(end_ms)),
         )
         fact_count = int((cur.fetchone() or (0,))[0])
         if tmp_count and fact_count < int(tmp_count):
@@ -365,7 +370,6 @@ def download_and_ingest(
                                     conn,
                                     zip_path=dst,
                                     symbol=sym,
-                                    file_id=int(file_id),
                                     start_ms=start_ms,
                                     end_ms=end_ms,
                                 )
@@ -539,7 +543,6 @@ def download_and_ingest(
                                     conn,
                                     zip_path=dst,
                                     symbol=sym,
-                                    file_id=int(file_id),
                                     start_ms=start_ms,
                                     end_ms=end_ms,
                                 )

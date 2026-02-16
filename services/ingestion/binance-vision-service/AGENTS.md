@@ -35,6 +35,7 @@
 
 - `data/futures/um/daily/trades/...` → `src/collectors/crypto/data/futures/um/trades.py`
 - `data/futures/um/daily/bookTicker/...` → `src/collectors/crypto/data/futures/um/bookTicker.py`
+- `data/futures/um/daily/bookDepth/...` → `src/collectors/crypto/data/futures/um/bookDepth.py`
 - `data/option/daily/EOHSummary/...` → `src/collectors/crypto/data/option/EOHSummary.py`
 
 ## 3. 运行时落盘目录（与“代码目录”严格区分）
@@ -52,6 +53,7 @@
 - 派生/汇总层（Derived，可选）DDL：`libs/database/db/schema/011_crypto_binance_vision_derived.sql`
 - 文件追溯表（必须用）：`libs/database/db/schema/008_multi_market_core_and_storage.sql`（`storage.files`）
 - symbol 映射硬约束（必须用）：`libs/database/db/schema/013_core_symbol_map_hardening.sql`（active 唯一性/窗口自洽/窗口不重叠）
+- bookDepth/bookTicker ids 迁移（运行库如有旧结构才需要）：`libs/database/db/schema/020_crypto_futures_book_ids_swap.sql`（rename-swap 保留 *_old）
 - trades readable views（必须用）：`libs/database/db/schema/016_crypto_trades_readable_views.sql`（时间戳转换 + as-of 映射，不污染事实表）
 - 采集治理旁路表（run/watermark/gap）：`libs/database/db/schema/012_crypto_ingest_governance.sql`
 - raw trades 最小 sanity CHECK（必须用）：`libs/database/db/schema/019_crypto_raw_trades_sanity_checks.sql`（上线护栏：默认 NOT VALID，但对新写入强制校验）
@@ -105,6 +107,10 @@
 
 - `docs/analysis/INDEX.md`（docs/analysis 单点真相入口）
 - `docs/analysis/crypto_raw_trades_hardening_runbook.md`（加固 runbook：约束硬化/权限隔离/验收 SQL）
+- `docs/analysis/binance_vision_um_trades_dev_retrospective.md`（逐笔事实表落地复盘：坑 → 根因 → 解决方案）
+- `docs/analysis/binance_vision_futures_um_book_data_full_ingestion_plan.md`（bookDepth/bookTicker 全量采集整理入库规划）
+- `docs/analysis/binance_vision_futures_um_book_depth_curve_explained.md`（bookDepth 曲线白话解释：是什么/为什么/怎么用/与官方差异）
+- `docs/analysis/crypto_atomic_common_fields_contract.md`（原子事实表公共字段契约：`venue_id/instrument_id` 的构造与三种写入类型收敛口径）
 
 ### 4.3 离线导入（local-only，本地已有 ZIP）
 

@@ -244,15 +244,16 @@ CSV 字段（样本有 header）：
 CSV 字段（header）：
 - `update_id,best_bid_price,best_bid_qty,best_ask_price,best_ask_qty,transaction_time,event_time`
 
-建议列：
-- `file_id`
-- `symbol`
-- `update_id` BIGINT
-- `event_time` BIGINT（ms）+ `event_time_ts`
-- bid/ask 价格与数量列
+物理表列（落地版本，已收敛到 ids 事实表契约）：
+- 公共字段（维度键）：`venue_id,instrument_id`
+- 官方字段：`update_id,best_bid_price,best_bid_qty,best_ask_price,best_ask_qty,transaction_time,event_time`
 
-幂等键：
-- `UNIQUE(symbol, update_id)`
+幂等键（与 DDL 一致）：
+- `PRIMARY KEY(venue_id, instrument_id, event_time, update_id)`
+
+时间语义：
+- `event_time`：BIGINT（epoch ms），Timescale integer hypertable 时间轴
+- 不存 `event_time_ts`；展示时查询 `to_timestamp(event_time/1000.0)` 或使用只读 view
 
 风险控制：
 - 导入链路要做“乱序检测”（最少统计 `event_time` 是否单调、是否存在倒序段），必要时落盘前按 `(event_time, update_id)` 排序或记录质量告警。
@@ -265,15 +266,16 @@ CSV 字段（header）：
 CSV 字段（header）：
 - `timestamp,percentage,depth,notional`
 
-建议列：
-- `file_id`
-- `symbol`
-- `timestamp` TIMESTAMPTZ
-- `percentage` NUMERIC
-- `depth` / `notional` NUMERIC
+物理表列（落地版本，已收敛到 ids 事实表契约）：
+- 公共字段（维度键）：`venue_id,instrument_id`
+- 官方字段：`timestamp,percentage,depth,notional`
 
-幂等键：
-- `UNIQUE(symbol, timestamp, percentage)`
+时间语义：
+- 官方 CSV 的 `timestamp` 是 UTC datetime；入库时统一转换为 `timestamp` BIGINT（epoch ms）
+- Timescale integer hypertable 时间轴：`timestamp`
+
+幂等键（与 DDL 一致）：
+- `PRIMARY KEY(venue_id, instrument_id, timestamp, percentage)`
 
 ### 5.7 Option：`crypto.raw_option_bvol_index` / `crypto.raw_option_eoh_summary`（物理层）
 
@@ -297,9 +299,9 @@ CSV 字段（header）：
 
 建议 hypertable：
 - `crypto.*_klines_1m`（派生层，按 `open_time_ts`）
-- `crypto.*_trades`、`crypto.*_agg_trades`、`crypto.*_book_ticker`（按 `time_ts/event_time_ts`）
+- `crypto.*_trades`、`crypto.*_agg_trades`、`crypto.*_book_ticker`（按 `time/event_time`）
 - `crypto.*_metrics`（按 `create_time`）
-- `crypto.*_book_depth`（按 `timestamp`）
+- `crypto.*_book_depth`（按 `timestamp`，epoch ms）
 - option 表按体量可选
 
 ### 6.2 chunk 粒度

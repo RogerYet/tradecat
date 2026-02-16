@@ -116,7 +116,10 @@ crypto
 > - 物理层（atomic）→ schema `crypto.*`
 > - 派生层（derived）→ 仍在 schema `crypto.*`（按“表集合/执行脚本”区分，不另建 schema）
 
-> 重要：`daily/monthly` 不进表名；`frequency` 记录在 `storage.files.frequency`，并通过 `file_id` 实现逐行回溯。
+> 重要：
+> - `daily/monthly` 不进表名；`frequency` 记录在 `storage.files.frequency`。
+> - “逐行 file_id 回溯”不是强制要求：对高频事实表（例如 `raw_futures_um_trades/raw_futures_um_book_ticker/raw_futures_um_book_depth`）为控制索引与写入放大，
+>   默认不在事实表存 `file_id/ingested_at/*_ts`，证据链在 `storage.*` 与 `crypto.ingest_runs` 完成。
 
 ---
 

@@ -16,6 +16,28 @@ def relpath_futures_um_trades_daily(symbol: str, d: date) -> str:
     return f"data/futures/um/daily/trades/{sym}/{sym}-trades-{d:%Y-%m-%d}.csv"
 
 
+def relpath_futures_um_book_ticker_daily(symbol: str, d: date) -> str:
+    """官方相对路径：UM bookTicker（日度 CSV）。
+
+    例：
+    - data/futures/um/daily/bookTicker/BTCUSDT/BTCUSDT-bookTicker-2026-02-09.csv
+    """
+
+    sym = symbol.upper()
+    return f"data/futures/um/daily/bookTicker/{sym}/{sym}-bookTicker-{d:%Y-%m-%d}.csv"
+
+
+def relpath_futures_um_book_depth_daily(symbol: str, d: date) -> str:
+    """官方相对路径：UM bookDepth（日度 CSV）。
+
+    例：
+    - data/futures/um/daily/bookDepth/BTCUSDT/BTCUSDT-bookDepth-2026-02-09.csv
+    """
+
+    sym = symbol.upper()
+    return f"data/futures/um/daily/bookDepth/{sym}/{sym}-bookDepth-{d:%Y-%m-%d}.csv"
+
+
 def relpath_futures_cm_trades_daily(symbol: str, d: date) -> str:
     """官方相对路径：CM trades（日度 CSV）。
 

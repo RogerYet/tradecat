@@ -68,6 +68,8 @@ def main() -> None:
         choices=[
             # 逐步补齐（严格对齐 Vision 数据集）
             "crypto.data.futures.um.trades",
+            "crypto.data.futures.um.bookTicker",
+            "crypto.data.futures.um.bookDepth",
             "crypto.data.futures.cm.trades",
             "crypto.data.spot.trades",
         ],
@@ -82,6 +84,8 @@ def main() -> None:
     collect.add_argument("--rest-overlap-multiplier", type=int, default=3, help="REST 补拉 overlap = x*W，默认 x=3")
     collect.add_argument("--gap-threshold-seconds", type=int, default=30, help="超过该秒数未收到新成交则触发巡检补齐")
     collect.add_argument("--gap-check-interval", type=float, default=10.0, help="巡检循环间隔（秒）")
+    collect.add_argument("--orderbook-limit", type=int, default=1000, help="仅 bookDepth：watchOrderBook limit（默认 1000）")
+    collect.add_argument("--emit-interval", type=float, default=5.0, help="仅 bookDepth：曲线输出间隔（秒），默认 5.0")
 
     backfill = sub.add_parser("backfill", help="运行下载回填卡片（Vision ZIP）")
     backfill.add_argument(
@@ -172,6 +176,44 @@ def main() -> None:
                     rest_overlap_multiplier=int(args.rest_overlap_multiplier),
                     gap_threshold_seconds=int(args.gap_threshold_seconds),
                     gap_check_interval_seconds=float(args.gap_check_interval),
+                )
+            )
+            return
+
+        if args.dataset == "crypto.data.futures.um.bookTicker":
+            from src.collectors.crypto.data.futures.um.bookTicker import collect_realtime
+
+            asyncio.run(
+                collect_realtime(
+                    symbols=symbols,
+                    service_root=service_root,
+                    database_url=cfg.database_url,
+                    write_csv=write_csv,
+                    write_db=write_db,
+                    flush_max_rows=int(args.flush_max_rows),
+                    flush_interval_seconds=float(args.flush_interval),
+                    gap_threshold_seconds=int(args.gap_threshold_seconds),
+                    gap_check_interval_seconds=float(args.gap_check_interval),
+                )
+            )
+            return
+
+        if args.dataset == "crypto.data.futures.um.bookDepth":
+            from src.collectors.crypto.data.futures.um.bookDepth import collect_realtime
+
+            asyncio.run(
+                collect_realtime(
+                    symbols=symbols,
+                    service_root=service_root,
+                    database_url=cfg.database_url,
+                    write_csv=write_csv,
+                    write_db=write_db,
+                    flush_max_rows=int(args.flush_max_rows),
+                    flush_interval_seconds=float(args.flush_interval),
+                    gap_threshold_seconds=int(args.gap_threshold_seconds),
+                    gap_check_interval_seconds=float(args.gap_check_interval),
+                    orderbook_limit=int(args.orderbook_limit),
+                    emit_interval_seconds=float(args.emit_interval),
                 )
             )
             return
@@ -420,4 +462,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info("收到中断信号，已退出。")

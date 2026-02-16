@@ -8,13 +8,20 @@
 - `docs/analysis/binance_vision_um_trades_mature_playbook.md`：UM trades 从 0→1 落地手册（迁移/验收/运维）。
 - `docs/analysis/binance_vision_um_trades_local_only_import.md`：UM trades 离线本地导入（local-only，多 worker，并发 + 自动压缩）。
 - `docs/analysis/binance_vision_um_trades_maturity_audit.md`：UM trades 成熟化审计快照（现状 vs 目标）。
+- `docs/analysis/binance_vision_um_trades_dev_retrospective.md`：逐笔事实表落地复盘（踩坑清单 + 根因 + 解决方案）。
 - `docs/analysis/binance_vision_db_physical_design.md`：crypto/core/storage 物理层说明（表职责、主键、时间语义）。
 - `docs/analysis/binance_vision_field_dictionary.md`：字段字典（对齐 Vision CSV 的字段语义与类型）。
+
+## 1.1) Binance Vision / futures.um book 数据（bookDepth / bookTicker）
+
+- `docs/analysis/binance_vision_futures_um_book_data_full_ingestion_plan.md`：bookDepth/bookTicker 全量回填规划（分段推进、对账、落盘策略）。
+- `docs/analysis/binance_vision_futures_um_book_depth_curve_explained.md`：bookDepth 曲线白话解释（是什么/为什么/怎么用/与官方差异）。
 
 ## 2) 加固与运维（强烈建议先读）
 
 - `docs/analysis/crypto_raw_trades_hardening_runbook.md`：trades sanity 约束“历史硬一致”、`--force-update` operator-only 权限隔离、验收 SQL。
 - `docs/analysis/layer_contract_one_pager.md`：采集→处理→消费的输入输出、幂等键、时间语义与观测指标（总合同）。
+- `docs/analysis/crypto_atomic_common_fields_contract.md`：原子事实表公共字段契约（`venue_id/instrument_id` 的构造与三种写入类型收敛口径）。
 
 ## 3) DDL 真相源（仓库内脚本）
 
@@ -27,6 +34,7 @@
 - `libs/database/db/schema/016_crypto_trades_readable_views.sql`：UM/CM/Spot trades readable views（as-of join + 时间戳转换）。
 - `libs/database/db/schema/019_crypto_raw_trades_sanity_checks.sql`：raw trades 最小 sanity CHECK（默认 NOT VALID，上线护栏）。
 - `libs/database/db/schema/018_core_binance_venue_code_futures_um.sql`：兼容迁移脚本（历史把 `futures_um` 写在 `venue_code=binance` 的环境使用）。
+- `libs/database/db/schema/020_crypto_futures_book_ids_swap.sql`：bookDepth/bookTicker ids 迁移脚本（旧结构运行库 rename-swap 保留 *_old）。
 
 ## 4) 执行任务索引
 

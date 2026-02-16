@@ -28,6 +28,7 @@ from src.writers.ingest_meta import IngestMetaWriter, IngestRunSpec
 from src.writers.import_meta import ImportBatchSpec, ImportMetaWriter
 from src.writers.pg import connect
 from src.writers.storage_files import StorageFileSpec, StorageFilesWriter
+from src.writers.core_registry import CoreRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +102,20 @@ def _ingest_zip(
     *,
     zip_path: Path,
     symbol: str,
-    file_id: int,
     start_ts: datetime,
     end_ts: datetime,
 ) -> IngestZipStats:
     sym = str(symbol).upper()
 
     with conn.cursor() as cur:
+        core = CoreRegistry(conn)
+        venue_id, instrument_id = core.resolve_venue_and_instrument_id(
+            venue_code="binance",
+            symbol=sym,
+            product="futures_um",
+            cursor=cur,
+        )
+
         cur.execute("SET TIME ZONE 'UTC'")
         cur.execute(
             """
@@ -131,30 +139,36 @@ def _ingest_zip(
         cur.execute(
             """
             INSERT INTO crypto.raw_futures_um_book_depth (
-              file_id, symbol, "timestamp", percentage, depth, notional
+              venue_id, instrument_id, timestamp, percentage, depth, notional
             )
             SELECT
-              %(file_id)s,
-              %(symbol)s,
-              "timestamp",
-              percentage,
-              depth,
-              notional
+              %(venue_id)s,
+              %(instrument_id)s,
+              (EXTRACT(EPOCH FROM "timestamp") * 1000)::BIGINT,
+              percentage::double precision,
+              depth::double precision,
+              notional::double precision
             FROM tmp_um_book_depth
             WHERE "timestamp" >= %(start_ts)s AND "timestamp" < %(end_ts)s
-            ON CONFLICT (symbol, "timestamp", percentage) DO NOTHING
+            ON CONFLICT (venue_id, instrument_id, timestamp, percentage) DO NOTHING
             """,
-            {"file_id": int(file_id), "symbol": sym, "start_ts": start_ts, "end_ts": end_ts},
+            {"venue_id": int(venue_id), "instrument_id": int(instrument_id), "start_ts": start_ts, "end_ts": end_ts},
         )
         affected_rows = int(cur.rowcount or 0)
+
+        start_ms = int(start_ts.timestamp() * 1000)
+        end_ms = int(end_ts.timestamp() * 1000)
 
         cur.execute(
             """
             SELECT COUNT(*)
             FROM crypto.raw_futures_um_book_depth
-            WHERE symbol = %s AND "timestamp" >= %s AND "timestamp" < %s
+            WHERE venue_id = %s
+              AND instrument_id = %s
+              AND timestamp >= %s
+              AND timestamp < %s
             """,
-            (sym, start_ts, end_ts),
+            (int(venue_id), int(instrument_id), int(start_ms), int(end_ms)),
         )
         fact_count = int((cur.fetchone() or (0,))[0])
         if tmp_count and fact_count < int(tmp_count):
@@ -341,7 +355,6 @@ def download_and_ingest(
                                     conn,
                                     zip_path=dst,
                                     symbol=sym,
-                                    file_id=int(file_id),
                                     start_ts=start_ts,
                                     end_ts=end_ts,
                                 )
@@ -499,7 +512,6 @@ def download_and_ingest(
                                     conn,
                                     zip_path=dst,
                                     symbol=sym,
-                                    file_id=int(file_id),
                                     start_ts=start_ts,
                                     end_ts=end_ts,
                                 )

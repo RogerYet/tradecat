@@ -148,57 +148,73 @@ END$$;
 -- futures/um/daily/bookTicker/{SYMBOL}/{SYMBOL}-bookTicker-YYYY-MM-DD.csv
 -- header：update_id,best_bid_price,best_bid_qty,best_ask_price,best_ask_qty,transaction_time(ms),event_time(ms)
 CREATE TABLE IF NOT EXISTS crypto.raw_futures_um_book_ticker (
-    file_id             BIGINT NOT NULL REFERENCES storage.files(file_id),
-    symbol              TEXT   NOT NULL,
-    update_id           BIGINT NOT NULL,
-    best_bid_price      NUMERIC(38, 12) NOT NULL,
-    best_bid_qty        NUMERIC(38, 12) NOT NULL,
-    best_ask_price      NUMERIC(38, 12) NOT NULL,
-    best_ask_qty        NUMERIC(38, 12) NOT NULL,
-    transaction_time    BIGINT,
-    transaction_time_ts TIMESTAMPTZ, -- 建议导入时计算：to_timestamp(transaction_time / 1000.0)
-    event_time          BIGINT NOT NULL,
-    event_time_ts       TIMESTAMPTZ NOT NULL, -- 建议导入时计算：to_timestamp(event_time / 1000.0)
-    ingested_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (symbol, event_time_ts, update_id)
+    venue_id         BIGINT NOT NULL,
+    instrument_id    BIGINT NOT NULL,
+    update_id        BIGINT NOT NULL,
+    best_bid_price   DOUBLE PRECISION NOT NULL,
+    best_bid_qty     DOUBLE PRECISION NOT NULL,
+    best_ask_price   DOUBLE PRECISION NOT NULL,
+    best_ask_qty     DOUBLE PRECISION NOT NULL,
+    transaction_time BIGINT,
+    event_time       BIGINT NOT NULL, -- epoch(ms)
+    PRIMARY KEY (venue_id, instrument_id, event_time, update_id)
 );
 
-SELECT create_hypertable('crypto.raw_futures_um_book_ticker', 'event_time_ts', chunk_time_interval => INTERVAL '1 day', if_not_exists => TRUE);
+-- 86400000ms = 1 day
+SELECT create_hypertable(
+    'crypto.raw_futures_um_book_ticker',
+    'event_time',
+    chunk_time_interval => 86400000,
+    create_default_indexes => FALSE,
+    if_not_exists => TRUE
+);
+DROP INDEX IF EXISTS crypto.raw_futures_um_book_ticker_event_time_idx;
+SELECT set_integer_now_func('crypto.raw_futures_um_book_ticker', 'crypto.unix_now_ms', replace_if_exists => TRUE);
 
 ALTER TABLE crypto.raw_futures_um_book_ticker
     SET (timescaledb.compress = TRUE,
-         timescaledb.compress_segmentby = 'symbol',
-         timescaledb.compress_orderby = 'event_time_ts,update_id');
+         timescaledb.compress_segmentby = 'venue_id,instrument_id',
+         timescaledb.compress_orderby = 'event_time,update_id');
 
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto.raw_futures_um_book_ticker', INTERVAL '3 days');
+    -- 3 days = 3 * 86400000(ms)
+    PERFORM add_compression_policy('crypto.raw_futures_um_book_ticker', 259200000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
 -- futures/um/daily/bookDepth/{SYMBOL}/{SYMBOL}-bookDepth-YYYY-MM-DD.csv
 -- header：timestamp(datetime),percentage,depth,notional
 CREATE TABLE IF NOT EXISTS crypto.raw_futures_um_book_depth (
-    file_id         BIGINT NOT NULL REFERENCES storage.files(file_id),
-    symbol          TEXT   NOT NULL,
-    "timestamp"     TIMESTAMPTZ NOT NULL, -- 约定：按 UTC 解析
-    percentage      NUMERIC(12, 4) NOT NULL,
-    depth           NUMERIC(38, 12) NOT NULL,
-    notional        NUMERIC(38, 12) NOT NULL,
-    ingested_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (symbol, "timestamp", percentage)
+    venue_id      BIGINT NOT NULL,
+    instrument_id BIGINT NOT NULL,
+    timestamp     BIGINT NOT NULL, -- epoch(ms)，导入时按 UTC 解析官方 datetime 再转 ms
+    percentage    DOUBLE PRECISION NOT NULL,
+    depth         DOUBLE PRECISION NOT NULL,
+    notional      DOUBLE PRECISION NOT NULL,
+    PRIMARY KEY (venue_id, instrument_id, timestamp, percentage)
 );
 
-SELECT create_hypertable('crypto.raw_futures_um_book_depth', 'timestamp', chunk_time_interval => INTERVAL '7 days', if_not_exists => TRUE);
+-- 604800000ms = 7 days
+SELECT create_hypertable(
+    'crypto.raw_futures_um_book_depth',
+    'timestamp',
+    chunk_time_interval => 604800000,
+    create_default_indexes => FALSE,
+    if_not_exists => TRUE
+);
+DROP INDEX IF EXISTS crypto.raw_futures_um_book_depth_timestamp_idx;
+SELECT set_integer_now_func('crypto.raw_futures_um_book_depth', 'crypto.unix_now_ms', replace_if_exists => TRUE);
 
 ALTER TABLE crypto.raw_futures_um_book_depth
     SET (timescaledb.compress = TRUE,
-         timescaledb.compress_segmentby = 'symbol',
+         timescaledb.compress_segmentby = 'venue_id,instrument_id',
          timescaledb.compress_orderby = 'timestamp,percentage');
 
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto.raw_futures_um_book_depth', INTERVAL '30 days');
+    -- 30 days = 30 * 86400000(ms)
+    PERFORM add_compression_policy('crypto.raw_futures_um_book_depth', 2592000000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
@@ -240,25 +256,10 @@ CREATE TABLE IF NOT EXISTS crypto.raw_futures_cm_book_ticker (LIKE crypto.raw_fu
 CREATE TABLE IF NOT EXISTS crypto.raw_futures_cm_book_depth (LIKE crypto.raw_futures_um_book_depth INCLUDING ALL);
 CREATE TABLE IF NOT EXISTS crypto.raw_futures_cm_metrics (LIKE crypto.raw_futures_um_metrics INCLUDING ALL);
 
--- LIKE 不会复制外键约束，这里显式补齐 file_id -> storage.files(file_id)
 DO $$
 BEGIN
     -- trades 表不包含 file_id（实时+回填统一事实表），因此无需 file_id 外键。
     PERFORM 1;
-EXCEPTION WHEN duplicate_object THEN NULL;
-END$$;
-
-DO $$
-BEGIN
-    ALTER TABLE crypto.raw_futures_cm_book_ticker
-        ADD CONSTRAINT raw_futures_cm_book_ticker_file_id_fkey FOREIGN KEY (file_id) REFERENCES storage.files(file_id);
-EXCEPTION WHEN duplicate_object THEN NULL;
-END$$;
-
-DO $$
-BEGIN
-    ALTER TABLE crypto.raw_futures_cm_book_depth
-        ADD CONSTRAINT raw_futures_cm_book_depth_file_id_fkey FOREIGN KEY (file_id) REFERENCES storage.files(file_id);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
@@ -289,25 +290,41 @@ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
-SELECT create_hypertable('crypto.raw_futures_cm_book_ticker', 'event_time_ts', chunk_time_interval => INTERVAL '1 day', if_not_exists => TRUE);
+SELECT create_hypertable(
+    'crypto.raw_futures_cm_book_ticker',
+    'event_time',
+    chunk_time_interval => 86400000,
+    create_default_indexes => FALSE,
+    if_not_exists => TRUE
+);
+DROP INDEX IF EXISTS crypto.raw_futures_cm_book_ticker_event_time_idx;
+SELECT set_integer_now_func('crypto.raw_futures_cm_book_ticker', 'crypto.unix_now_ms', replace_if_exists => TRUE);
 ALTER TABLE crypto.raw_futures_cm_book_ticker
     SET (timescaledb.compress = TRUE,
-         timescaledb.compress_segmentby = 'symbol',
-         timescaledb.compress_orderby = 'event_time_ts,update_id');
+         timescaledb.compress_segmentby = 'venue_id,instrument_id',
+         timescaledb.compress_orderby = 'event_time,update_id');
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto.raw_futures_cm_book_ticker', INTERVAL '3 days');
+    PERFORM add_compression_policy('crypto.raw_futures_cm_book_ticker', 259200000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
-SELECT create_hypertable('crypto.raw_futures_cm_book_depth', 'timestamp', chunk_time_interval => INTERVAL '7 days', if_not_exists => TRUE);
+SELECT create_hypertable(
+    'crypto.raw_futures_cm_book_depth',
+    'timestamp',
+    chunk_time_interval => 604800000,
+    create_default_indexes => FALSE,
+    if_not_exists => TRUE
+);
+DROP INDEX IF EXISTS crypto.raw_futures_cm_book_depth_timestamp_idx;
+SELECT set_integer_now_func('crypto.raw_futures_cm_book_depth', 'crypto.unix_now_ms', replace_if_exists => TRUE);
 ALTER TABLE crypto.raw_futures_cm_book_depth
     SET (timescaledb.compress = TRUE,
-         timescaledb.compress_segmentby = 'symbol',
+         timescaledb.compress_segmentby = 'venue_id,instrument_id',
          timescaledb.compress_orderby = 'timestamp,percentage');
 DO $$
 BEGIN
-    PERFORM add_compression_policy('crypto.raw_futures_cm_book_depth', INTERVAL '30 days');
+    PERFORM add_compression_policy('crypto.raw_futures_cm_book_depth', 2592000000);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 

@@ -12,3 +12,9 @@
 | 0008 | futures-um-book-metrics-ingestion | Done | P1 | 补齐 futures/um 的 bookTicker/bookDepth/metrics（下载回填为主，必要时 WS），并完成审计/治理闭环 | tasks/0008-futures-um-book-metrics-ingestion/ |
 | 0009 | futures-cm-book-metrics-ingestion | Not Started | P2 | 在 UM 成熟实现基础上对称补齐 futures/cm 的 bookTicker/bookDepth/metrics（下载回填为主） | tasks/0009-futures-cm-book-metrics-ingestion/ |
 | 0010 | option-bvol-eoh-ingestion | Not Started | P2 | 补齐 option 的 BVOLIndex/EOHSummary（下载回填），并完成字段解析与审计闭环 | tasks/0010-option-bvol-eoh-ingestion/ |
+
+## 相关索引（单点入口）
+
+- `docs/analysis/INDEX.md`：设计真相源 / 落地手册 / 运维加固 / 验收口径索引（强烈建议从这里开始读）。
+- `docs/analysis/binance_vision_um_trades_dev_retrospective.md`：UM trades 从 0 到可长期跑的复盘（坑 → 根因 → 解决方案）。
+- `docs/analysis/binance_vision_futures_um_book_data_full_ingestion_plan.md`：bookDepth/bookTicker 全量采集整理入库规划（分段推进 + 对账 + 成本控制）。

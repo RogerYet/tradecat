@@ -40,6 +40,7 @@ except Exception:  # pragma: no cover
     ccxtpro = None  # type: ignore
 
 from src.runtime.decimal_utils import format_decimal_like_vision
+from src.runtime.ccxt_pro_compat import patch_ccxt_fast_client_for_aiohttp_313
 from src.runtime.time_utils import us_to_date_utc
 from src.runtime.vision_paths import relpath_spot_trades_daily
 from src.writers.csv_appender import append_csv_rows
@@ -295,6 +296,8 @@ async def collect_realtime(
 
     if ccxtpro is None:  # pragma: no cover
         raise RuntimeError("未安装 ccxtpro（import ccxt.pro 失败）")
+
+    patch_ccxt_fast_client_for_aiohttp_313()
 
     if not symbols:
         raise ValueError("symbols 不能为空")

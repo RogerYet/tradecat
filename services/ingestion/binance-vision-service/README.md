@@ -18,13 +18,13 @@ cd services/ingestion/binance-vision-service
 make install-dev
 
 # 实时（UM trades）
-DATABASE_URL=postgresql://... \
+BINANCE_VISION_DATABASE_URL=postgresql://... \
 python3 -m src collect \
   --dataset crypto.data.futures.um.trades \
   --symbols BTCUSDT
 
 # 历史回填（UM trades）
-DATABASE_URL=postgresql://... \
+BINANCE_VISION_DATABASE_URL=postgresql://... \
 BINANCE_DATA_BASE=https://data.binance.vision \
 python3 -m src backfill \
   --dataset crypto.data_download.futures.um.trades \

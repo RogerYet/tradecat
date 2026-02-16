@@ -25,8 +25,9 @@ BEGIN
             CREATE MATERIALIZED VIEW market_data.%I
             WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
             SELECT
-                time_bucket(%L::interval, create_time) AS bucket,
+                exchange,
                 symbol,
+                time_bucket(%L::interval, create_time) AS create_time,
                 last(sum_open_interest, create_time) AS sum_open_interest,
                 last(sum_open_interest_value, create_time) AS sum_open_interest_value,
                 sum(count_toptrader_long_short_ratio) AS count_toptrader_long_short_ratio,
@@ -38,24 +39,23 @@ BEGIN
                 max(ingested_at) AS ingested_at,
                 max(updated_at) AS updated_at
             FROM market_data.binance_futures_metrics_5m
-            GROUP BY 1,2
-            WITH NO DATA;
+            GROUP BY exchange, symbol, time_bucket(%L::interval, create_time);
         $fmt$, p_view_name, p_bucket_interval, p_bucket_interval);
     END IF;
 
     -- 索引
     EXECUTE format(
-        'CREATE INDEX IF NOT EXISTS %I ON market_data.%I (bucket, symbol);',
-        'idx_' || p_view_name || '_bucket_symbol', p_view_name
+        'CREATE INDEX IF NOT EXISTS %I ON market_data.%I (create_time, exchange, symbol);',
+        'idx_' || p_view_name || '_time_exchange_symbol', p_view_name
     );
 
     -- start_offset => NULL 表示刷新全部历史数据
     BEGIN
         EXECUTE format(
-            'SELECT add_continuous_aggregate_policy(''market_data.%I'', start_offset => NULL, end_offset => %L::interval, schedule_interval => %L::interval, if_not_exists => TRUE);',
+            'SELECT add_continuous_aggregate_policy(''market_data.%I'', start_offset => NULL, end_offset => %L::interval, schedule_interval => %L::interval);',
             p_view_name, p_end_offset, p_schedule
         );
-    EXCEPTION WHEN duplicate_object OR unique_violation THEN
+    EXCEPTION WHEN duplicate_object THEN
         NULL;
     END;
 END;

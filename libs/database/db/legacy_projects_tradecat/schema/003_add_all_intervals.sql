@@ -52,9 +52,8 @@ BEGIN
             PRIMARY KEY (exchange, symbol, bucket_ts)
         );
 
-        -- 注意：candles_1M 使用了双引号/大小写混合命名，Timescale 相关函数必须传入带引号的关系名
         PERFORM create_hypertable(
-            'market_data."candles_1M"',
+            'market_data.candles_1M',
             'bucket_ts',
             chunk_time_interval => INTERVAL '180 days',
             if_not_exists => TRUE
@@ -65,17 +64,10 @@ BEGIN
                  timescaledb.compress_segmentby = 'exchange,symbol',
                  timescaledb.compress_orderby = 'bucket_ts');
 
-        BEGIN
-            PERFORM add_compression_policy('market_data."candles_1M"', INTERVAL '90 days');
-        EXCEPTION WHEN duplicate_object THEN
-            NULL;
-        END;
-
-        BEGIN
-            PERFORM add_retention_policy('market_data."candles_1M"', INTERVAL '1825 days');
-        EXCEPTION WHEN duplicate_object THEN
-            NULL;
-        END;
+        PERFORM add_compression_policy('market_data.candles_1M', INTERVAL '90 days')
+            ON CONFLICT DO NOTHING;
+        PERFORM add_retention_policy('market_data.candles_1M', INTERVAL '1825 days')
+            ON CONFLICT DO NOTHING;
     END IF;
 END$$;
 

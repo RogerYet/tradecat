@@ -33,15 +33,9 @@ SELECT create_hypertable(
 -- 唯一约束防重（需在导入前确保无重复）
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_constraint c
-        WHERE c.conrelid = 'market_data.binance_futures_metrics_5m'::regclass
-          AND c.conname = 'uq_metrics_5m'
-    ) THEN
-        ALTER TABLE market_data.binance_futures_metrics_5m
-            ADD CONSTRAINT uq_metrics_5m UNIQUE (symbol, create_time);
-    END IF;
+    ALTER TABLE market_data.binance_futures_metrics_5m
+        ADD CONSTRAINT uq_metrics_5m UNIQUE (symbol, create_time);
+EXCEPTION WHEN duplicate_object THEN NULL;
 END$$;
 
 -- 索引
@@ -68,3 +62,4 @@ END$$;
 --     PERFORM add_retention_policy('market_data.binance_futures_metrics_5m', INTERVAL '730 days');
 -- EXCEPTION WHEN duplicate_object THEN NULL;
 -- END$$;
+

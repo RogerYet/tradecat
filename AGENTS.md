@@ -168,15 +168,16 @@ make status      # 查看状态
 
 ### 3.4 数据库操作
 
-> **端口说明**：`config/.env.example` 默认端口为 **5434**（新库），但导出/压缩脚本默认 **5433**（旧库）。请根据实际部署选择统一端口。
+> **端口说明**：推荐 **LF+HF 双集群**，避免同名表在不同库里结构漂移导致写库崩溃：
+> - LF（低频/分时/K线与指标）：`localhost:5433/market_data`（`DATABASE_URL` / `DATA_SERVICE_DATABASE_URL`）
+> - HF（高频/原子事实）：`localhost:15432/market_data`（`BINANCE_VISION_DATABASE_URL`）
 
 ```bash
-# 连接 TimescaleDB（根据 config/.env 中 DATABASE_URL 端口）
-# 新库（5434）
-PGPASSWORD=postgres psql -h localhost -p 5434 -U postgres -d market_data
-
-# 旧库（5433，脚本默认）
+# 连接 TimescaleDB（LF）
 PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d market_data
+
+# 连接 TimescaleDB（HF）
+PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d market_data
 
 # 查看 K线数据量
 SELECT COUNT(*) FROM market_data.candles_1m;
@@ -309,7 +310,7 @@ logger.error("错误: %s", error, exc_info=True)
 tradecat/
 ├── config/                         # 统一配置（所有服务共用）
 │   ├── .env                        # 生产配置（含密钥，不提交）
-│   ├── .env.example                # 配置模板（默认端口 5434）
+│   ├── .env.example                # 配置模板（默认：LF=5433，HF=15432）
 │   └── logrotate.conf              # 日志轮转
 │
 ├── scripts/                        # 全局脚本
@@ -460,11 +461,14 @@ pip install TA-Lib
 ### 7.2 数据库连接失败
 
 ```bash
-# 检查端口（根据 config/.env 配置选择 5433 或 5434）
-ss -tlnp | grep 5434
+# 检查端口（LF=5433，HF=15432）
+ss -tlnp | grep -E '5433|15432'
 
-# 测试连接
-PGPASSWORD=postgres psql -h localhost -p 5434 -U postgres -c "\l"
+# 测试连接（LF）
+PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d market_data -c "\l"
+
+# 测试连接（HF）
+PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d market_data -c "\l"
 ```
 
 ### 7.3 虚拟环境问题
@@ -536,35 +540,18 @@ sudo cp /tmp/tradecat-logrotate.conf /etc/logrotate.d/tradecat
 # - 超过上限后暂停重启，告警写入 alerts.log
 ```
 
-### 7.8 端口冲突（双库架构）
+### 7.8 端口/双集群（LF/HF）
 
 ```bash
-# 旧库（5433）：与早期数据采集链兼容，export/compression 脚本默认使用
-# 新库（5434）：多 schema 架构（raw/agg/quality），.env.example 默认
+# LF（5433）：K线/指标（market_data.*），默认由 DATABASE_URL 承载
+# HF（15432）：原子事实（core/storage/crypto.raw_*），由 BINANCE_VISION_DATABASE_URL 承载
 
 # 确认当前使用端口
-grep "DATABASE_URL" config/.env | grep -oP ':\K\d+(?=/)'
+grep -E "^(DATABASE_URL|DATA_SERVICE_DATABASE_URL|BINANCE_VISION_DATABASE_URL)=" config/.env
 
-# 若需切换端口，需同步修改：
-# - config/.env 中 DATABASE_URL
-# - scripts/export_timescaledb.sh
-# - scripts/timescaledb_compression.sh
-# - README.md 中所有示例命令
-```
-
-### 7.8 端口冲突（双库架构）
-
-```bash
-# 旧库（5433）：与早期数据采集链兼容，export/compression 脚本默认使用
-# 新库（5434）：多 schema 架构（raw/agg/quality），.env.example 默认
-
-# 确认当前使用端口
-grep "DATABASE_URL" config/.env | grep -oP ':\K\d+(?=/)'
-
-# 若需切换端口，需同步修改：
-# - config/.env 中 DATABASE_URL
-# - scripts/export_timescaledb.sh
-# - scripts/timescaledb_compression.sh
+# 初始化 DDL（禁止跑 schema/*.sql，必须通过 stacks 入口）
+PGPASSWORD=postgres psql -h localhost -p 5433  -U postgres -d market_data -f libs/database/db/stacks/lf.sql
+PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d market_data -f libs/database/db/stacks/hf.sql
 ```
 
 ---
@@ -649,7 +636,9 @@ CI（`.github/workflows/ci.yml`）仅执行：
 
 | 变量 | 说明 | 示例 |
 |:---|:---|:---|
-| `DATABASE_URL` | TimescaleDB 连接串 | `postgresql://postgres:postgres@localhost:5434/market_data` |
+| `DATABASE_URL` | LF（K线/指标）TimescaleDB 连接串 | `postgresql://postgres:postgres@localhost:5433/market_data` |
+| `DATA_SERVICE_DATABASE_URL` | data-service 专用 LF 连接串（可选） | `postgresql://postgres:postgres@localhost:5433/market_data` |
+| `BINANCE_VISION_DATABASE_URL` | HF（原子事实）连接串（binance-vision 专用） | `postgresql://postgres:postgres@localhost:15432/market_data` |
 | `BOT_TOKEN` | Telegram Bot Token | `123456:ABC...` |
 | `HTTP_PROXY` | HTTP 代理 | `http://127.0.0.1:9910` |
 | `DEFAULT_LOCALE` | 默认语言 | `en` |
@@ -734,8 +723,9 @@ cd services/<layer>/<name> && make lint format test
 # 验证
 ./scripts/verify.sh
 
-# 数据库（根据实际端口选择 5433 或 5434）
-PGPASSWORD=postgres psql -h localhost -p 5434 -U postgres -d market_data
+# 数据库（LF=5433，HF=15432）
+PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d market_data
+PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d market_data
 sqlite3 libs/database/services/telegram-service/market_data.db
 
 # 备份

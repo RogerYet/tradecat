@@ -1,34 +1,18 @@
 -- 002_taker_buy_and_gap_tracking.sql
 --
 -- 目的：
--- 1) 在 1m 基础表上补齐“主动买（taker_buy_*）”的 upsert 能力（幂等覆盖）。
--- 2) 建立 missing_intervals 表：用于缺口检测、回填排队、重试与审计。
+-- 1. 在 1m 基础表上追加主动买相关 upsert 能力，支持 VWAP、VPVR 等策略。
+-- 2. 建立 missing_intervals 表，用于缺口检测与回填任务的排队与重试。
 --
 -- 使用说明：
--- - 执行本脚本前需已运行 `001_timescaledb.sql`（创建 market_data.* 基表）。
--- - 脚本支持幂等执行（IF NOT EXISTS / CREATE OR REPLACE / DROP IF EXISTS）。
+-- - 在执行本脚本前需已运行 001_timescaledb.sql。
+-- - 脚本支持幂等执行，所有对象均以 IF NOT EXISTS 或 CREATE OR REPLACE 方式处理。
+-- - 若后续已切换为 Timescale 连续聚合（004），缺口表依旧可共存，无需额外操作。
 
 SET search_path TO market_data, public;
 
--- ==================== upsert：1m（含 taker_buy_*） ====================
-
-DROP FUNCTION IF EXISTS market_data.upsert_candle_1m(
-    TEXT,
-    TEXT,
-    TIMESTAMPTZ,
-    NUMERIC,
-    NUMERIC,
-    NUMERIC,
-    NUMERIC,
-    NUMERIC,
-    NUMERIC,
-    BIGINT,
-    BOOLEAN,
-    TEXT,
-    NUMERIC,
-    NUMERIC
-);
-
+-- upsert 函数（主动买可选参数） -----------------------------------------------
+DROP FUNCTION IF EXISTS market_data.upsert_candle_1m(TEXT, TEXT, TIMESTAMPTZ, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, BIGINT, BOOLEAN, TEXT, NUMERIC, NUMERIC);
 CREATE OR REPLACE FUNCTION market_data.upsert_candle_1m(
     p_exchange      TEXT,
     p_symbol        TEXT,
@@ -41,7 +25,7 @@ CREATE OR REPLACE FUNCTION market_data.upsert_candle_1m(
     p_quote_volume  NUMERIC DEFAULT NULL,
     p_trade_count   BIGINT  DEFAULT NULL,
     p_is_closed     BOOLEAN DEFAULT FALSE,
-    p_source        TEXT    DEFAULT 'ccxt',
+    p_source        TEXT        DEFAULT 'ccxt',
     p_taker_buy_volume       NUMERIC DEFAULT NULL,
     p_taker_buy_quote_volume NUMERIC DEFAULT NULL
 )
@@ -79,13 +63,33 @@ BEGIN
 END;
 $$;
 
--- ==================== 缺口检测表（回填队列/审计证据） ====================
-
+DROP FUNCTION IF EXISTS market_data.upsert_candle_1h(TEXT, TEXT, TIMESTAMPTZ, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, NUMERIC, BIGINT, BOOLEAN, TEXT);
+CREATE OR REPLACE FUNCTION market_data.upsert_candle_1h(
+    p_exchange      TEXT,
+    p_symbol        TEXT,
+    p_bucket_ts     TIMESTAMPTZ,
+    p_open          NUMERIC,
+    p_high          NUMERIC,
+    p_low           NUMERIC,
+    p_close         NUMERIC,
+    p_volume        NUMERIC,
+    p_quote_volume  NUMERIC DEFAULT NULL,
+    p_trade_count   BIGINT  DEFAULT NULL,
+    p_is_closed     BOOLEAN DEFAULT FALSE,
+    p_source        TEXT    DEFAULT 'ccxt',
+    p_taker_buy_volume       NUMERIC DEFAULT NULL,
+    p_taker_buy_quote_volume NUMERIC DEFAULT NULL
+)
+RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+-- 缺口检测表 ------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS market_data.missing_intervals (
     id              BIGSERIAL PRIMARY KEY,
     exchange        TEXT        NOT NULL,
     symbol          TEXT        NOT NULL,
-    "interval"      TEXT        NOT NULL,
+    "interval"     TEXT        NOT NULL,
     gap_start       TIMESTAMPTZ NOT NULL,
     gap_end         TIMESTAMPTZ NOT NULL,
     detected_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -99,22 +103,4 @@ ALTER TABLE market_data.missing_intervals
 
 ALTER TABLE market_data.missing_intervals
     ADD CONSTRAINT missing_intervals_interval_check
-    CHECK ("interval" IN (
-        '1m','3m','5m','15m','30m',
-        '1h','2h','4h','6h','12h',
-        '1d','1w','1M'
-    ));
-
-ALTER TABLE market_data.missing_intervals
-    DROP CONSTRAINT IF EXISTS missing_intervals_gap_window_check;
-
-ALTER TABLE market_data.missing_intervals
-    ADD CONSTRAINT missing_intervals_gap_window_check
-    CHECK (gap_end > gap_start);
-
-CREATE INDEX IF NOT EXISTS idx_missing_intervals_status_detected_at
-    ON market_data.missing_intervals (status, detected_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_missing_intervals_exchange_symbol_interval
-    ON market_data.missing_intervals (exchange, symbol, "interval");
-
+    CHECK ("interval" IN ('1m','3m','5m','15m','30m','1h','2h','4h','6h','12h','1d','1w','1M'));

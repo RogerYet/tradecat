@@ -49,12 +49,10 @@ BEGIN
     -- start_offset => NULL 表示刷新全部历史数据
     BEGIN
         EXECUTE format(
-            'SELECT add_continuous_aggregate_policy(''market_data.%I'', start_offset => NULL, end_offset => %L::interval, schedule_interval => %L::interval, if_not_exists => TRUE);',
+            'SELECT add_continuous_aggregate_policy(''market_data.%I'', start_offset => NULL, end_offset => %L::interval, schedule_interval => %L::interval);',
             p_view_name, p_end_offset, p_schedule
         );
-    -- timescaledb 版本差异下，重复策略可能抛 duplicate_object 或 unique_violation；
-    -- 这里按幂等语义吞掉“已存在”的情况。
-    EXCEPTION WHEN duplicate_object OR unique_violation THEN
+    EXCEPTION WHEN duplicate_object THEN
         NULL;
     END;
 END;

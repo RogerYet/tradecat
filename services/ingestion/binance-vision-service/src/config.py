@@ -12,6 +12,52 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
+
+
+SERVICE_ROOT = Path(__file__).resolve().parents[1]  # services/ingestion/binance-vision-service
+
+
+def _find_project_root(start: Path) -> Path:
+    """向上查找仓库根目录（以 config/.env.example 与 services/ 作为锚点）。"""
+    current = start
+    for _ in range(12):
+        if (current / "config" / ".env.example").exists() and (current / "services").is_dir():
+            return current
+        if current.parent == current:
+            break
+        current = current.parent
+    return start.parents[2]
+
+
+def _load_env_defaults_from_file(env_file: Path) -> None:
+    """从 .env 加载默认环境变量（不覆盖进程外部显式设置的值）。"""
+    if not env_file.exists():
+        return
+    for raw_line in env_file.read_text().splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            continue
+        if "$(" in line or "`" in line:
+            continue
+        if "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        key = key.strip()
+        val = val.strip()
+        if not key:
+            continue
+        if val.startswith('"') and val.endswith('"') and len(val) >= 2:
+            val = val[1:-1]
+        if val.startswith("'") and val.endswith("'") and len(val) >= 2:
+            val = val[1:-1]
+        os.environ.setdefault(key, val)
+
+
+PROJECT_ROOT = _find_project_root(SERVICE_ROOT)
+_load_env_defaults_from_file(PROJECT_ROOT / "config" / ".env")
 
 
 @dataclass(frozen=True)

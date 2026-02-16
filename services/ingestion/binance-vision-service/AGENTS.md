@@ -12,6 +12,7 @@
 - **字段完备**：采集入库的数据必须包含该数据集官方 CSV 的全部字段（字段名或语义映射一致）；缺字段必须补齐（可计算则计算），否则禁止“半字段入库”。
 - **物理层只收基元（Raw/Atomic）**：只写入 `crypto.raw_*` 表；`crypto.agg_*`（可派生/汇总）一律延后或由独立流程生成。
 - **历史回填**：允许直接下载 Binance Vision 的 `daily/monthly` ZIP 作为权威来源（用于“从 2019 到现在”的全量补齐与最终对账）。
+- **两库隔离**：优先使用 `BINANCE_VISION_DATABASE_URL` 作为本服务连接串；未设置才回退 `DATABASE_URL`（避免与低频 data-service 混库）。
 
 ## 1. 禁止事项（Hard No）
 

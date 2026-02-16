@@ -151,7 +151,7 @@ SELECT
   has_function_privilege('tradecat_operator', 'public.compress_chunk(regclass,boolean,boolean)', 'EXECUTE') AS operator_can_compress;
 ```
 
-> 如果你希望“真实区分账号”，请基于以上角色再创建 `LOGIN` 用户（例如 `tradecat_ingest_user` / `tradecat_operator_user`）并让服务使用 ingest 用户的 `DATABASE_URL`。
+> 如果你希望“真实区分账号”，请基于以上角色再创建 `LOGIN` 用户（例如 `tradecat_ingest_user` / `tradecat_operator_user`），并让采集服务使用 ingest 用户的连接串（`BINANCE_VISION_DATABASE_URL`，或回退 `DATABASE_URL`）。
 
 ## 5. 最小验收清单（上线前/上线后都可跑）
 
@@ -171,4 +171,3 @@ FROM pg_constraint
 WHERE conname LIKE 'chk_raw_%_trades_sanity'
 ORDER BY conname;
 ```
-

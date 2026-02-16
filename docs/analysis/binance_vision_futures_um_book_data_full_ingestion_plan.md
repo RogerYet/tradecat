@@ -87,7 +87,7 @@ PGPASSWORD=postgres psql -h localhost -p 15432 -U postgres -d market_data \
 
 ```bash
 cd services/ingestion/binance-vision-service
-DATABASE_URL='postgresql://postgres:postgres@localhost:15432/market_data' \
+BINANCE_VISION_DATABASE_URL='postgresql://postgres:postgres@localhost:15432/market_data' \
 BINANCE_DATA_BASE='https://data.binance.vision' \
 python3 -m src backfill \
   --dataset crypto.data_download.futures.um.bookDepth \
@@ -103,7 +103,7 @@ python3 -m src backfill \
 
 ```bash
 cd services/ingestion/binance-vision-service
-DATABASE_URL='postgresql://postgres:postgres@localhost:15432/market_data' \
+BINANCE_VISION_DATABASE_URL='postgresql://postgres:postgres@localhost:15432/market_data' \
 BINANCE_DATA_BASE='https://data.binance.vision' \
 python3 -m src backfill \
   --dataset crypto.data_download.futures.um.bookTicker \
@@ -154,7 +154,7 @@ SELECT
 
 ```bash
 cd services/ingestion/binance-vision-service
-DATABASE_URL='postgresql://postgres:postgres@localhost:15432/market_data' \
+BINANCE_VISION_DATABASE_URL='postgresql://postgres:postgres@localhost:15432/market_data' \
 python3 -m src collect \
   --dataset crypto.data.futures.um.bookTicker \
   --symbols BTCUSDT \
@@ -163,7 +163,7 @@ python3 -m src collect \
 
 ```bash
 cd services/ingestion/binance-vision-service
-DATABASE_URL='postgresql://postgres:postgres@localhost:15432/market_data' \
+BINANCE_VISION_DATABASE_URL='postgresql://postgres:postgres@localhost:15432/market_data' \
 python3 -m src collect \
   --dataset crypto.data.futures.um.bookDepth \
   --symbols BTCUSDT \

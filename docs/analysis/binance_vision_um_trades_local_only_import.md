@@ -21,7 +21,7 @@
 
 ```bash
 cd services/ingestion/binance-vision-service
-export DATABASE_URL='postgresql://postgres:postgres@localhost:15432/market_data'
+export BINANCE_VISION_DATABASE_URL='postgresql://postgres:postgres@localhost:15432/market_data'
 
 # 建议：先 BTC 再扩展其他 symbol
 PYTHONUNBUFFERED=1 python3 -m src backfill \

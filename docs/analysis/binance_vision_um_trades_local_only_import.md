@@ -12,8 +12,10 @@
 
 服务根目录：
 
-- `services/ingestion/binance-vision-service/data_download/data/futures/um/monthly/trades/{SYMBOL}/{SYMBOL}-trades-YYYY-MM.zip`
-- `services/ingestion/binance-vision-service/data_download/data/futures/um/daily/trades/{SYMBOL}/{SYMBOL}-trades-YYYY-MM-DD.zip`
+- `services/ingestion/binance-vision-service/data_download/futures/um/monthly/trades/{SYMBOL}/{SYMBOL}-trades-YYYY-MM.zip`
+- `services/ingestion/binance-vision-service/data_download/futures/um/daily/trades/{SYMBOL}/{SYMBOL}-trades-YYYY-MM-DD.zip`
+
+注意：`storage.files.rel_path` 记录的是官方目录（以 `data/futures/...` 开头），与本地落盘目录（以 `data_download/...` 开头）不同；这是刻意设计，用于“官方路径可对照、落盘路径可隔离”。
 
 ## 3) 执行命令（BTC 全量示例）
 
@@ -47,4 +49,3 @@ PYTHONUNBUFFERED=1 python3 -m src backfill \
 
 - 事实表：以主键幂等去重；同一文件/窗口重复导入不会产生重复行（但会有写入成本）。
 - 审计层：以 `storage.files(rel_path)` 做文件级“已入库”判断，已完成文件会跳过；跳过路径仍会补做必要压缩（防爆盘）。
-

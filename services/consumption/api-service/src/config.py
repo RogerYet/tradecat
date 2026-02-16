@@ -25,7 +25,7 @@ class Settings:
     # TimescaleDB
     DATABASE_URL: str = os.getenv(
         "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5434/market_data"
+        "postgresql://postgres:postgres@localhost:5433/market_data"
     )
 
     # SQLite 路径

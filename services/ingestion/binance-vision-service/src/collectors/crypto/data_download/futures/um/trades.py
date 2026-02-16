@@ -419,6 +419,7 @@ def _ingest_local_plan_items_worker(
             "ingest_ok": 0,
             "ingest_failed": 0,
             "skip_existing": 0,
+            "skip_existing_local_missing": 0,
             "file_rows_total": 0,
             "affected_rows_total": 0,
             "chunks_decompressed_total": 0,
@@ -443,6 +444,40 @@ def _ingest_local_plan_items_worker(
                 raise RuntimeError(f"未知 plan item kind: {item.kind}")
 
             dst = service_root / rel
+            start_ms, end_ms = _date_range_ms_utc(item.start_date, item.end_date)
+
+            with conn.cursor() as cur:
+                if _should_skip_local_ingest(cur, rel_path=vision_rel):
+                    logger.info("[%s] local-only: 已入库，跳过: %s", sym, vision_rel)
+                    if dst.exists():
+                        run_meta["skip_existing"] = int(run_meta["skip_existing"]) + 1
+                    else:
+                        logger.warning("[%s] local-only: 已入库但本地 ZIP 缺失（离线不可复现）: %s", sym, dst)
+                        run_meta["skip_existing_local_missing"] = int(run_meta["skip_existing_local_missing"]) + 1
+
+                    # 已入库但未压缩的场景：允许重跑时补做压缩，避免后续爆盘。
+                    if compress_after_ms is not None:
+                        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                        threshold_ms = int(now_ms) - int(compress_after_ms)
+                        try:
+                            chunks = _list_um_trades_uncompressed_chunks_older_than(
+                                cur,
+                                start_ms=int(start_ms),
+                                end_ms=int(end_ms),
+                                older_than_end_ms=int(threshold_ms),
+                            )
+                            for ch in chunks:
+                                try:
+                                    cur.execute("SELECT compress_chunk(%s::regclass)", (str(ch),))
+                                    run_meta["chunks_compressed_total"] = int(run_meta["chunks_compressed_total"]) + 1
+                                except Exception as e:  # noqa: BLE001
+                                    run_meta["chunks_compress_failed_total"] = int(run_meta["chunks_compress_failed_total"]) + 1
+                                    logger.warning("[%s] local-only: compress_chunk 失败（chunk=%s）: %s", sym, ch, e)
+                            conn.commit()
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning("[%s] local-only: 自动压缩失败（skip path）: %s", sym, e)
+                    continue
+
             r = _verify_local_zip(dst)
             if not r.ok:
                 logger.warning("[%s] local-only: 跳过（文件不可用）: %s", sym, r.error or dst)
@@ -477,31 +512,6 @@ def _ingest_local_plan_items_worker(
                     meta={"vision_rel_path": vision_rel, "local_path": str(dst)},
                 )
                 continue
-
-            start_ms, end_ms = _date_range_ms_utc(item.start_date, item.end_date)
-
-            with conn.cursor() as cur:
-                if _should_skip_local_ingest(cur, rel_path=vision_rel):
-                    logger.info("[%s] local-only: 已入库，跳过: %s", sym, vision_rel)
-                    run_meta["skip_existing"] = int(run_meta["skip_existing"]) + 1
-
-                    # 已入库但未压缩的场景：允许重跑时补做压缩，避免后续爆盘。
-                    if compress_after_ms is not None:
-                        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-                        if int(end_ms) < int(now_ms) - int(compress_after_ms):
-                            try:
-                                chunks = _list_um_trades_uncompressed_chunks(cur, start_ms=int(start_ms), end_ms=int(end_ms))
-                                for ch in chunks:
-                                    try:
-                                        cur.execute("SELECT compress_chunk(%s::regclass)", (str(ch),))
-                                        run_meta["chunks_compressed_total"] = int(run_meta["chunks_compressed_total"]) + 1
-                                    except Exception as e:  # noqa: BLE001
-                                        run_meta["chunks_compress_failed_total"] = int(run_meta["chunks_compress_failed_total"]) + 1
-                                        logger.warning("[%s] local-only: compress_chunk 失败（chunk=%s）: %s", sym, ch, e)
-                                conn.commit()
-                            except Exception as e:  # noqa: BLE001
-                                logger.warning("[%s] local-only: 自动压缩失败（skip path）: %s", sym, e)
-                    continue
 
             try:
                 stats = _ingest_zip(
@@ -573,20 +583,25 @@ def _ingest_local_plan_items_worker(
             # 说明：全历史导入若不及时压缩，rowstore+PK 索引会快速膨胀到 TB 级。
             if compress_after_ms is not None:
                 now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-                if int(end_ms) < int(now_ms) - int(compress_after_ms):
-                    try:
-                        with conn.cursor() as cur:
-                            chunks = _list_um_trades_uncompressed_chunks(cur, start_ms=int(start_ms), end_ms=int(end_ms))
-                            for ch in chunks:
-                                try:
-                                    cur.execute("SELECT compress_chunk(%s::regclass)", (str(ch),))
-                                    run_meta["chunks_compressed_total"] = int(run_meta["chunks_compressed_total"]) + 1
-                                except Exception as e:  # noqa: BLE001
-                                    run_meta["chunks_compress_failed_total"] = int(run_meta["chunks_compress_failed_total"]) + 1
-                                    logger.warning("[%s] local-only: compress_chunk 失败（chunk=%s）: %s", sym, ch, e)
-                        conn.commit()
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("[%s] local-only: 自动压缩失败: %s", sym, e)
+                threshold_ms = int(now_ms) - int(compress_after_ms)
+                try:
+                    with conn.cursor() as cur:
+                        chunks = _list_um_trades_uncompressed_chunks_older_than(
+                            cur,
+                            start_ms=int(start_ms),
+                            end_ms=int(end_ms),
+                            older_than_end_ms=int(threshold_ms),
+                        )
+                        for ch in chunks:
+                            try:
+                                cur.execute("SELECT compress_chunk(%s::regclass)", (str(ch),))
+                                run_meta["chunks_compressed_total"] = int(run_meta["chunks_compressed_total"]) + 1
+                            except Exception as e:  # noqa: BLE001
+                                run_meta["chunks_compress_failed_total"] = int(run_meta["chunks_compress_failed_total"]) + 1
+                                logger.warning("[%s] local-only: compress_chunk 失败（chunk=%s）: %s", sym, ch, e)
+                    conn.commit()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("[%s] local-only: 自动压缩失败: %s", sym, e)
 
         meta_writer.finish_run(run_id, status=status, error_message=error_message, meta=run_meta)
         import_writer.finish_batch(batch_id, status=status, meta=run_meta)
@@ -693,6 +708,32 @@ def _list_um_trades_uncompressed_chunks(cur: psycopg.Cursor, *, start_ms: int, e
         ORDER BY c.range_start_integer
         """,
         {"start": int(start_ms), "end": int(end_ms)},
+    )
+    return [str(r[0]) for r in (cur.fetchall() or []) if r and r[0]]
+
+
+def _list_um_trades_uncompressed_chunks_older_than(
+    cur: psycopg.Cursor,
+    *,
+    start_ms: int,
+    end_ms: int,
+    older_than_end_ms: int,
+) -> list[str]:
+    """列出窗口内“未压缩且已超过阈值”的 chunks（返回 chunk 的 regclass 字符串）。"""
+
+    cur.execute(
+        """
+        SELECT format('%%I.%%I', c.chunk_schema, c.chunk_name)
+        FROM timescaledb_information.chunks c
+        WHERE c.hypertable_schema = 'crypto'
+          AND c.hypertable_name = 'raw_futures_um_trades'
+          AND c.is_compressed = FALSE
+          AND c.range_start_integer < %(end)s
+          AND c.range_end_integer > %(start)s
+          AND c.range_end_integer < %(older_than_end)s
+        ORDER BY c.range_start_integer
+        """,
+        {"start": int(start_ms), "end": int(end_ms), "older_than_end": int(older_than_end_ms)},
     )
     return [str(r[0]) for r in (cur.fetchall() or []) if r and r[0]]
 

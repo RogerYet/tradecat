@@ -2,7 +2,7 @@
 
 状态机：Not Started / In Progress / Blocked / Done
 
-## 当前状态：In Progress
+## 当前状态：Done
 
 ## 已收集证据（Live Evidence）
 

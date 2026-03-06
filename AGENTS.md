@@ -96,7 +96,7 @@ ingestion  -> TimescaleDB (LF/HF) -> compute -> PG(tg_cards.*) -> Query Service 
 
 - `services/ingestion/*`：采集层（写 TimescaleDB）
 - `services/compute/*`：计算层（指标/信号/AI）
-- `services/consumption/*`：消费层（Telegram/API/Sheets）
+- `services/consumption/*`：消费层（Telegram/API/Visualization）
 
 ### 兼容性要求（以仓库为准）
 
@@ -151,11 +151,13 @@ tradecat/
 │   ├── compute/
 │   │   ├── trading-service/
 │   │   ├── signal-service/
-│   │   └── ai-service/
+│   │   ├── ai-service/
+│   │   └── fate-service/
 │   └── consumption/
 │       ├── telegram-service/
 │       ├── api-service/
-│       └── sheets-service/
+│       ├── vis-service/
+│       └── nofx-dev/
 └── assets/                    # 共享资产根：common/database/repo/tests 等
 ```
 
@@ -187,13 +189,6 @@ cd .. && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
 
 pip install TA-Lib
 ```
-
-### sheets-service 在代理环境下偶发 SSL 抖动
-
-现象（常见日志）：`SSLError: DECRYPTION_FAILED_OR_BAD_RECORD_MAC`
-
-- 若使用 SA 写入：可设置 `SHEETS_SA_NET_WRITE_RETRIES` 提升幂等写入的重试容忍度  
-  - 证据：`services/consumption/sheets-service/src/sa_sheets_writer.py` 读取该环境变量
 
 ---
 

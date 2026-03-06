@@ -159,9 +159,32 @@ services/trading-service/.venv
 libs/external/   # legacy path (pre-migration)
 assets/repo/
 assets/services-preview/
-services/ingestion/predict-service/
-services/compute/fate-service/
-services/consumption/nofx-dev/
+services/consumption/sheets-service/
+services/compute/fate-service/.venv/
+services/compute/fate-service/.pytest_cache/
+services/compute/fate-service/**/__pycache__/
+services/compute/fate-service/libs/data/
+services/compute/fate-service/libs/database/
+services/compute/fate-service/libs/external/
+services/compute/fate-service/services/telegram-service/output/logs/
+services/compute/fate-service/**/.DS_Store
+services/consumption/nofx-dev/.git/
+services/consumption/nofx-dev/logs/
+services/consumption/nofx-dev/data/
+services/consumption/nofx-dev/web/node_modules/
+services/consumption/nofx-dev/nofx
+!services/consumption/nofx-dev/web/public/**/*.png
+!services/consumption/nofx-dev/web/public/**/*.jpg
+!services/consumption/nofx-dev/web/public/**/*.jpeg
+services/consumption/nofx-dev/**/.DS_Store
+services/ingestion/predict-service/.venv/
+services/ingestion/predict-service/.pytest_cache/
+services/ingestion/predict-service/**/__pycache__/
+services/ingestion/predict-service/libs/external/
+services/ingestion/predict-service/services/kalshi/data/
+services/ingestion/predict-service/services/opinion/data/
+services/ingestion/predict-service/services/polymarket/data/
+services/ingestion/predict-service/**/.DS_Store
 dist/
 polymarket-bot.out
 

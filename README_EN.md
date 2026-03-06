@@ -194,11 +194,9 @@ vim assets/config/.env
 ./scripts/start.sh status
 ```
 
-> Note: top-level `./scripts/start.sh` manages `ai-service`, `signal-service`, `api-service`, `telegram-service`, `trading-service` by default (ai-service is a sub-module; readiness check only, no standalone process; and `api-service` starts before telegram/sheets).  
-> **Important**: since 2026-03, the consumption layer (Telegram/Sheets/visualization) is no longer allowed to read DB directly. All reads go through **Query Service** (`api-service`, `/api/v1`). Do **not** stop `api-service` while running Telegram/Sheets.  
+> Note: top-level `./scripts/start.sh` manages `ai-service`, `signal-service`, `api-service`, `telegram-service`, `trading-service` by default (ai-service is a sub-module; readiness check only, no standalone process; and `api-service` starts before Telegram and other consumers).  
+> **Important**: since 2026-03, the consumption layer (Telegram/visualization and related consumers) is no longer allowed to read DB directly. All reads go through **Query Service** (`api-service`, `/api/v1`). Do **not** stop `api-service` while running consumers.  
 > Legacy ingestion service (low-frequency 1m/5m): `services/ingestion/data-service/` (not enabled by default).  
-> Optional services (manual start):  
-> - `cd services/consumption/sheets-service && ./scripts/start.sh start` (Google Sheets dashboard sync, daemon by default)
 > Optional check: `./scripts/smoke_query_service.sh` (validates Query Service auth + availability; does not print token)
 
 ### ⚙️ Configuration (required)
@@ -553,7 +551,6 @@ graph TD
 | **ai-service** | - | AI analysis, Wyckoff methodology (as telegram-service submodule) | Gemini/OpenAI/Claude/DeepSeek |
 | **fate-service** | - | Fate/astrology service (independent microservice) | Python, Node.js (optional) |
 | **api-service** | 8088 | REST API (indicators/candles/signals query; override via `API_SERVICE_PORT`) | FastAPI, Pydantic |
-| **sheets-service** | - | Google Sheets public dashboard sync (TG cards → Sheets; auditable/replayable) | python-dotenv, python-telegram-bot |
 | **vis-service** | 8087 | Visualization rendering (K-line/indicators/VPVR) | FastAPI, matplotlib, mplfinance |
 | **predict-service** | - | Prediction market signals (Polymarket/Kalshi/Opinion) | Node.js + Python utilities |
 | **nofx-dev** | - | Agentic Trading OS (preview / external mirror, not core chain) | Go, React, TypeScript |
@@ -884,10 +881,9 @@ tradecat/
 │   │   ├── 📂 ai-service/          # AI analysis (telegram submodule)
 │   │   └── 📂 fate-service/        # Fate/astrology (independent microservice)
 │   │
-│   └── 📂 consumption/             # Consumption layer (Telegram/API/Sheets/Visualization)
+│   └── 📂 consumption/             # Consumption layer (Telegram/API/Visualization)
 │       ├── 📂 telegram-service/    # Telegram Bot (cards/subscriptions/snapshots)
 │       ├── 📂 api-service/         # Query Service (REST API; started by top-level start.sh by default)
-│       ├── 📂 sheets-service/      # Google Sheets dashboard sync (optional)
 │       ├── 📂 vis-service/         # Visualization rendering (optional)
 │       └── 📂 nofx-dev/            # Preview: external mirror (not core chain)
 │

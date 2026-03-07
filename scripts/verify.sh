@@ -20,6 +20,45 @@ success() { echo -e "${GREEN}✓ $1${NC}"; }
 fail() { echo -e "${RED}✗ $1${NC}"; exit 1; }
 warn() { echo -e "${YELLOW}⚠ $1${NC}"; }
 
+# 0) 公开镜像私有边界守护
+echo ""
+echo "0. 私有服务边界守护..."
+
+BLOCKLIST_FILE="assets/config/public-private-blocklist.txt"
+BLOCKED_PATHS=()
+
+if [ -f "$BLOCKLIST_FILE" ]; then
+    while IFS= read -r line; do
+        line="${line%%#*}"
+        line="$(echo "$line" | xargs)"
+        if [ -n "$line" ]; then
+            BLOCKED_PATHS+=("$line")
+        fi
+    done < "$BLOCKLIST_FILE"
+fi
+
+if [ "${#BLOCKED_PATHS[@]}" -eq 0 ]; then
+    BLOCKED_PATHS=("services/consumption/sheets-service")
+fi
+
+PRIVATE_VIOLATIONS=()
+for path in "${BLOCKED_PATHS[@]}"; do
+    if [ -e "$path" ]; then
+        PRIVATE_VIOLATIONS+=("$path")
+        continue
+    fi
+    if git ls-files -- "$path" | grep -q .; then
+        PRIVATE_VIOLATIONS+=("$path")
+    fi
+done
+
+if [ "${#PRIVATE_VIOLATIONS[@]}" -gt 0 ]; then
+    printf '命中私有服务路径：%s\n' "${PRIVATE_VIOLATIONS[@]}"
+    fail "公开仓库包含私有服务源码"
+else
+    success "公开仓库未包含私有服务源码"
+fi
+
 # 0) 目录结构守护（防止旧目录/软链接回潮）
 echo ""
 echo "0. 目录结构守护..."

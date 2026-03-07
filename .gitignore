@@ -159,6 +159,7 @@ services/trading-service/.venv
 libs/external/   # legacy path (pre-migration)
 assets/repo/
 assets/services-preview/
+# 私有专用服务：禁止进入公开镜像仓库
 services/consumption/sheets-service/
 services/compute/fate-service/.venv/
 services/compute/fate-service/.pytest_cache/

@@ -1,0 +1,2 @@
+# 私有服务路径：公开仓库禁止包含这些源码目录
+services/consumption/sheets-service

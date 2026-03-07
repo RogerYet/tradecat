@@ -159,6 +159,9 @@ services/trading-service/.venv
 libs/external/   # legacy path (pre-migration)
 assets/repo/
 assets/services-preview/
+# 内部文档/任务：禁止进入公开镜像仓库（仅本地保留）
+assets/docs/
+assets/tasks/
 # 私有专用服务：禁止进入公开镜像仓库
 services/consumption/sheets-service/
 services/ingestion/event-service/

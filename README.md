@@ -188,9 +188,11 @@ vim assets/config/.env
 ./scripts/start.sh status
 ```
 
-> 说明：顶层 `./scripts/start.sh` 默认管理 `ai-service`、`signal-service`、`api-service`、`telegram-service`、`trading-service`（ai-service 为子模块，仅做就绪检查，无独立进程；并保证 api-service 先于 Telegram 与其它消费端启动）。  
-> **重要**：从 2026-03 起，consumption 层（Telegram/可视化等）不再允许直连数据库，统一通过 **Query Service（api-service，`/api/v1`）** 读取数据；因此在运行消费端时 **不要停掉 `api-service`**。  
+> 说明：顶层 `./scripts/start.sh` 默认管理 `ai-service`、`signal-service`、`api-service`、`telegram-service`、`trading-service`（ai-service 为子模块，仅做就绪检查，无独立进程；并保证 api-service 先于 telegram/sheets 启动）。  
+> **重要**：从 2026-03 起，consumption 层（Telegram/Sheets/可视化）不再允许直连数据库，统一通过 **Query Service（api-service，`/api/v1`）** 读取数据；因此在运行 Telegram/Sheets 时 **不要停掉 `api-service`**。  
 > 低频/分时采集服务 data-service：`services/ingestion/data-service/`（兼容链路，不在默认启动链路）。  
+> 可选服务需手动启动：  
+> - `cd services/consumption/sheets-service && ./scripts/start.sh start`（Google Sheets 公共看板同步，默认 daemon）
 > 可选校验：`./scripts/smoke_query_service.sh`（验证 Query Service 鉴权与可用性；不回显 token）
 
 ### ⚙️ 配置（必须）
@@ -227,6 +229,7 @@ vim assets/config/.env
   - 展示过滤：`BINANCE_API_DISABLED`、`DISABLE_SINGLE_TOKEN_QUERY`、`SNAPSHOT_HIDDEN_FIELDS`、`BLOCKED_SYMBOLS`  
   - AI/交易：`AI_INDICATOR_TABLES`、`AI_INDICATOR_TABLES_DISABLED`、`LLM_BACKEND`、`LLM_API_BASE_URL`、`EXTERNAL_API_KEY`、`LLM_MODEL`、`LLM_MAX_TOKENS`、`AI_LARGE_PAYLOAD_CHAR_LIMIT`、`AI_FORCE_GEMINI_ON_LARGE_PAYLOAD`、`AI_DEFAULT_PROMPT`、`AI_RECORD_ENABLED`、`AI_RECORD_PAYLOAD`、`AI_RECORD_PROMPT`、`AI_RECORD_MESSAGES`、`AI_RECORD_ANALYSIS`、`AI_RECORD_MAX_DIRS`、`BINANCE_API_KEY`、`BINANCE_API_SECRET`
   - 国际化：`DEFAULT_LOCALE`（默认 en）、`SUPPORTED_LOCALES`（zh-CN,en）、`FALLBACK_LOCALE`
+  - Google Sheets（可选，`sheets-service`）：`SHEETS_*` 见 `assets/config/.env.example` 的 “Google Sheets 公共看板” 段落；弱网/代理环境可用 `SHEETS_SA_NET_WRITE_RETRIES` 提升 SA 模式稳定性（默认 2）。
 
 ### 📦 下载历史数据（可选）
 
@@ -546,6 +549,7 @@ graph TD
 | **ai-service** | - | AI 分析、Wyckoff 方法论（作为 telegram-service 子模块） | Gemini/OpenAI/Claude/DeepSeek |
 | **fate-service** | - | 命理/排盘服务（独立微服务） | Python, Node.js（可选） |
 | **api-service** | 8088 | REST API 服务（指标/K线/信号数据查询；可用 `API_SERVICE_PORT` 覆盖） | FastAPI, Pydantic |
+| **sheets-service** | - | Google Sheets 公共看板同步（TG 卡片→表格；可审计/可重放） | python-dotenv, python-telegram-bot |
 | **vis-service** | 8087 | 可视化渲染（K线图/指标图/VPVR） | FastAPI, matplotlib, mplfinance |
 | **predict-service** | - | 预测市场信号（Polymarket/Kalshi/Opinion） | Node.js + Python utilities |
 | **nofx-dev** | - | Agentic Trading OS（预览/外部工程镜像，非核心链路） | Go, React, TypeScript |
@@ -874,11 +878,12 @@ tradecat/
 │   │   ├── 📂 trading-service/     # 指标计算（写入 PG: tg_cards.*；供消费层读取）
 │   │   ├── 📂 signal-service/      # 信号检测（规则引擎）
 │   │   ├── 📂 ai-service/          # AI 分析（telegram 子模块）
-│   │   └── 📂 fate-service/        # 命理/排盘（独立微服务）
 │   │
-│   └── 📂 consumption/             # 消费层：对外呈现（Telegram/API/可视化）
+│   └── 📂 consumption/             # 消费层：对外呈现（Telegram/API/Sheets/可视化）
 │       ├── 📂 telegram-service/    # Telegram Bot（卡片/订阅/快照）
 │       ├── 📂 api-service/         # Query Service（REST API，默认随顶层启动）
+│       ├── 📂 fate-service/        # 命理/排盘（独立微服务）
+│       ├── 📂 sheets-service/      # Google Sheets 公共看板同步（可选）
 │       ├── 📂 vis-service/         # 可视化渲染（可选）
 │       └── 📂 nofx-dev/            # 预览：外部工程镜像（非核心链路）
 │

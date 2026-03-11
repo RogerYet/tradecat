@@ -36,7 +36,7 @@
 ### 步骤1：安装依赖
 
 ```bash
-cd services/predict-service/services/polymarket
+cd services/consumption/predict-service/services/polymarket
 npm install
 ```
 

@@ -24,7 +24,7 @@
 
 ```bash
 # 1. 拉起环境（以 Polymarket 子服务为例）
-cd services/predict-service/services/polymarket
+cd services/consumption/predict-service/services/polymarket
 npm install
 
 # 2. 配置（首次）
@@ -50,11 +50,11 @@ npm test
 
 | 场景 | 命令 | 工作目录 |
 |------|------|----------|
-| 安装依赖 | `npm install` | `services/predict-service/services/<subservice>/` |
-| 启动（生产） | `npm start` | `services/predict-service/services/<subservice>/` |
-| 启动（调试） | `npm run dev` | `services/predict-service/services/<subservice>/` |
-| 运行测试 | `npm test` | `services/predict-service/services/<subservice>/` |
-| PM2 启动 | `pm2 start ecosystem.config.js` | `services/predict-service/services/<subservice>/` |
+| 安装依赖 | `npm install` | `services/consumption/predict-service/services/<subservice>/` |
+| 启动（生产） | `npm start` | `services/consumption/predict-service/services/<subservice>/` |
+| 启动（调试） | `npm run dev` | `services/consumption/predict-service/services/<subservice>/` |
+| 运行测试 | `npm test` | `services/consumption/predict-service/services/<subservice>/` |
+| PM2 启动 | `pm2 start ecosystem.config.js` | `services/consumption/predict-service/services/<subservice>/` |
 | PM2 日志 | `pm2 logs <service-name>` | 任意 |
 | PM2 重启 | `pm2 restart <service-name>` | 任意 |
 

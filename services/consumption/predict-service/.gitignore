@@ -55,6 +55,10 @@ logs/
 .env
 .env.local
 
+# Runtime state
+users.json
+services/*/data/
+
 # PID files
 pids/
 *.pid

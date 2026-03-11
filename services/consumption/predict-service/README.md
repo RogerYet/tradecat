@@ -27,7 +27,7 @@
 ## 目录结构
 
 ```
-services/predict-service/
+services/consumption/predict-service/
 ├── services/
 │   ├── polymarket/              # Polymarket 信号 Bot（主服务）
 │   ├── kalshi/                  # Kalshi 信号 Bot
@@ -50,7 +50,7 @@ services/predict-service/
 
 ```bash
 # 1. 进入子服务目录（示例：Polymarket）
-cd services/predict-service/services/polymarket
+cd services/consumption/predict-service/services/polymarket
 
 # 2. 安装依赖
 npm install
@@ -65,7 +65,7 @@ npm run dev        # 调试模式（DEBUG=true）
 
 # 其他子服务（Kalshi / Opinion）启动方式相同，替换目录即可
 # 例如：
-# cd services/predict-service/services/kalshi && npm start
+# cd services/consumption/predict-service/services/kalshi && npm start
 ```
 
 ### 代理配置（重要）
@@ -86,7 +86,7 @@ HTTP_PROXY=http://127.0.0.1:9910
 
 ```bash
 # 在对应子服务目录执行
-cd services/predict-service/services/polymarket
+cd services/consumption/predict-service/services/polymarket
 pm2 start ecosystem.config.js
 
 # 常用命令
